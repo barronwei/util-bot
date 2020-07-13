@@ -1,0 +1,15 @@
+[package]
+authors = [
+  "Barron Wei <barronwei@college.harvard.edu>",
+  "William Law <williamlaw.wtl@gmail.com>",
+  "Rithvik Rao <rithvikrao@college.harvard.edu>",
+  "Mohammed Sahl <sahl.kably@gmail.com>",
+]
+edition = "2018"
+name = "util-bot"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serenity = "0.8.6"
