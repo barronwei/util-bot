@@ -1,33 +1,61 @@
-extern crate serenity;
+#[macro_use]
+extern crate diesel;
+extern crate dotenv;
 
-use serenity::model::channel::*;
-use serenity::model::gateway::Ready;
-use serenity::prelude::*;
+use diesel::prelude::*;
+use diesel::pg::PgConnection;
+use dotenv::dotenv;
 
+use std::env;
+// use std::collections::HashSet;
 use std::fs::File;
 use std::io::prelude::*;
 
+use serenity::prelude::*;
+use serenity::model::gateway::Ready;
+use serenity::model::channel::{Message, Reaction};
+
+mod schema;
+
 struct Handler;
 
-impl EventHandler for Handler {
-    fn reaction_add(&self, _ctx: Context, _add_reaction: Reaction) {}
+// struct User {
+//     id: serenity::model::id::UserId,
+//     languages: HashSet<String>,
+// }
 
-    fn message(&self, _ctx: Context, _new_message: Message) {
-        if _new_message.content == "!bubble" {
-            if let Err(message) = _new_message.channel_id.say(&_ctx.http, "teaaa!") {
-                println!("Error given with message: {:?}", message);
-            }
-        }
+pub fn establish_connection() -> PgConnection {
+    dotenv().ok();
+
+    let database_url = env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set");
+    PgConnection::establish(&database_url)
+        .expect(&format!("Error connecting to {}", database_url))
+}
+
+impl EventHandler for Handler {
+    fn reaction_add(&self, _ctx: Context, _add_reaction: Reaction) {
+
     }
 
-    fn ready(&self, _ctx: Context, _data_about_bot: Ready) {
-        println!("{} is ready", _data_about_bot.user.name);
+    fn message(&self, _ctx: Context, _message: Message) {
+
+    }
+
+    fn ready(&self, _ctx: Context, bot_status: Ready) {
+        println!("{} is ready", bot_status.user.name);
     }
 }
 
+
 fn main() {
+    // let connection = establish_connection();
+
+    // let connection = establish_connection();
+
     let mut file = File::open(".token").unwrap();
     let mut token = String::new();
+
     file.read_to_string(&mut token)
         .expect("Token File not found");
 
