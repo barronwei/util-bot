@@ -2,7 +2,7 @@
 create table if not exists "user" (
     id serial primary key,
     discord_id integer not null,
-    languages text not null,
+    languages text[] not null,
     group_state integer not null
 );
 

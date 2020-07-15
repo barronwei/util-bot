@@ -23,7 +23,7 @@ type Pool = diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<diesel::PgConnect
 #[table_name = "user"]
 struct NewUser<'a> {
     discord_id: i32,
-    languages: &'a str,
+    languages: Vec<&'a str>,
     group_state: i32,
 }
 
@@ -31,7 +31,7 @@ struct NewUser<'a> {
 struct User {
     id: i32,
     discord_id: i32,
-    languages: String,
+    languages: Vec<String>,
     group_state: i32,
 }
 
@@ -96,12 +96,12 @@ fn is_user_exist(id: &u64, connection_pool: &Pool) -> bool {
     .unwrap()
 }
 
-fn insert_user(id: &u64, languages: &String, connection_pool: &Pool) {
+fn insert_user(id: &u64, languages: Vec<String>, connection_pool: &Pool) {
     // NewUser is the struct used for inserting into the database
     diesel::insert_into(schema::user::dsl::user)
         .values(NewUser {
             discord_id: *id as i32,
-            languages: languages,
+            languages: languages.iter().map(AsRef::as_ref).collect(),
             group_state: 0 as i32,
         })
         .execute(&connection_pool.get().unwrap())
@@ -115,15 +115,14 @@ fn start_group(context: &Context, message: &Message, message_tokens: &Vec<&str>)
 }
 fn clear_user_languages(id: &u64, connection_pool: &Pool) {
     // User clears the languages
+    let empty: Vec<String> = Vec::new();
     diesel::update(schema::user::dsl::user)
-        .set(schema::user::dsl::languages.eq(""))
+        .set(schema::user::dsl::languages.eq(empty))
         .filter(schema::user::dsl::discord_id.eq(*id as i32))
         .execute(&connection_pool.get().unwrap()).ok();
 }
 
-fn add_user_langauges() {}
-
-fn get_user_languages(user_id: &u64, connection_pool: &Pool) -> String {
+fn get_user_languages(user_id: &u64, connection_pool: &Pool) -> Vec<String> {
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
     let results: std::vec::Vec<User> = user.
@@ -131,10 +130,10 @@ fn get_user_languages(user_id: &u64, connection_pool: &Pool) -> String {
     .load::<User>(&connection)
     .expect("error");
     let return_result = &results[0].languages;
-    return_result.to_string()
+    return_result.to_vec()
 }
 
-fn update_user_languages(user_id: &u64, connection_pool: &Pool) {
+fn update_user_languages(user_id: &u64, languages: Vec<String>, connection_pool: &Pool) {
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
     let results: std::vec::Vec<User> = user.
@@ -180,40 +179,40 @@ impl EventHandler for Handler {
                     "join" => join_group(&context, &message, &message_tokens),
                     "check" => check_group(&context, &message, &message_tokens),
                     "skrt" => skrt_group(&context, &message, &message_tokens),
+                    "clear" => clear_user_languages(&message_author_id, connection_pool),
                     _ => println!("Bad group command"),
                 }
-            }
-
-            
-            // Test existance of message sender
-            if is_user_exist(&message_author_id, connection_pool) {
-                println!(
-                    "You're already in the database and your ID is {}",
-                    message_author_id
-                );
-            // TODO: Add query here to verify that user has been added
-            // Insert new user that sent the message
-            } else {
-                insert_user(&message.author.id.0, &message.content, connection_pool);
-                println!(
-                    "You've been added to the database. Your ID is {}",
-                    message_author_id
-                )
-            }
-            if message_tokens[1] == "clear" {
-                if !is_user_exist(&message_author_id, connection_pool) { return; }
-                else {
-
+            } else if message_tokens[1] == "clear" {
+                if is_user_exist(&message_author_id, connection_pool) {
+                    clear_user_languages(&message_author_id, connection_pool);
+                } else {
+                    println!("No record present to clear");
+                }
+            } else if message_tokens[1] == "view" {
+                if is_user_exist(&message_author_id, connection_pool) {
+                    let languages = get_user_languages(&message_author_id, connection_pool);
+                    println!("Languages: ");
+                    for language in languages {
+                        println!("{}", language);
+                    }
+                } else {
+                    println!("No record present to view");
+                }
+            } else if message_tokens[1] == "add" {
+                let cfg_strings: Vec<&str> = message_tokens[2..].to_vec();
+                let mut strings_vec: Vec<String> = Vec::new();
+                for s in &cfg_strings {
+                    strings_vec.push(s.to_string());
+                }
+                if is_user_exist(&message_author_id, connection_pool) {
+                    update_user_languages(&message_author_id, strings_vec, connection_pool);
+                } else {
+                    insert_user(&message_author_id, strings_vec , connection_pool);
                 }
             } else {
-                // Query update
-                println!("{}",get_user_languages(&message_author_id, connection_pool));
+                println!("Bad command")
             }
         }
-        // Test existance of random user_id and print result
-        let test2: bool = is_user_exist(&032458097234, connection_pool);
-        // Print results
-        println!("UserID: {} Exists: {}", 1203948799, test2);
     }
 
     fn ready(&self, context: Context, bot_status: Ready) {

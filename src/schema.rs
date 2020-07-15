@@ -27,7 +27,7 @@ table! {
     user (id) {
         id -> Int4,
         discord_id -> Int4,
-        languages -> Text,
+        languages -> Array<Text>,
         group_state -> Int4,
     }
 }
