@@ -84,13 +84,13 @@ enum regexmatches {
 fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
     //let remind_message = lazy_static::REMIND_MESSAGE
     let message = Regex::new(r"\b([A-Za-z0-9\D\S]+)\b").unwrap();
-    let person = Regex::new(r"@([A-Za-z0-9\D\S])[^\s]+").unwrap();
+    //let person = Regex::new(r"@([A-Za-z0-9\D\S])[^\s]+").unwrap();
     let date = Regex::new(r"([0-9]+)\s?:?([0-9]+)?\s?(min?s|hr?s|day?s|week?s|am|pm)+").unwrap(); // ([0-9]+)?\s(min?s|hr?s|day?s|week?s)+
 
     //let specific_date = Regex::new(r"([0-9]):([0-9]+)\s?([A-Za-z]+)").unwrap();
     let incoming_message = msg.content.replace("~remind", "");
     let remind_message = message.captures(&incoming_message).unwrap();
-    let remind_person = person.captures(&incoming_message).unwrap();
+    //let remind_person = person.captures(&incoming_message).unwrap();
     let remind_date = date.captures(&incoming_message).unwrap();
 
     // message, person, number (4), unit (mins/hrs)
