@@ -1,6 +1,7 @@
 table! {
     match_admin (id) {
         id -> Int4,
+        status -> Bool,
         questions -> Array<Text>,
         user_id -> Int4,
     }
@@ -28,7 +29,7 @@ table! {
         id -> Int4,
         discord_id -> Int4,
         languages -> Text,
-        group_state -> Int4,
+        pool_state -> Int4,
     }
 }
 
