@@ -13,5 +13,5 @@ version = "0.1.0"
 
 [dependencies]
 serenity = "0.8.6"
-diesel={version="1", features=["postgres"]}
+diesel={version="1", features=["postgres", "r2d2"]}
 dotenv = "0.15.0"
