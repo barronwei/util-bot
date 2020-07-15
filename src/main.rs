@@ -28,6 +28,7 @@ struct NewUser<'a> {
 }
 
 #[derive(Queryable)]
+<<<<<<< HEAD
 struct User {
     id: i32,
     discord_id: i32,
@@ -77,6 +78,12 @@ struct MatchGroups {
     id: i32,
     members: Vec<i32>,
     match_id: i32,
+=======
+pub struct User {
+    pub id: i32,
+    pub discord_id: i32,
+    pub languages: String,
+>>>>>>> Add query template for users
 }
 
 struct PooledConnection(Pool);
@@ -91,9 +98,13 @@ fn is_user_exist(id: &u64, connection_pool: &Pool) -> bool {
 
     diesel::select(exists::exists(
         schema::user::dsl::user.filter(user_dsl::discord_id.eq(*id as i32)),
+<<<<<<< HEAD
     ))
     .get_result::<bool>(&connection_pool.get().unwrap())
     .unwrap()
+=======
+    )).get_result::<bool>(&connection_pool.get().unwrap()).unwrap()
+>>>>>>> Add query template for users
 }
 
 fn insert_user(id: &u64, languages: &String, connection_pool: &Pool) {
@@ -108,11 +119,47 @@ fn insert_user(id: &u64, languages: &String, connection_pool: &Pool) {
         .unwrap();
 }
 
+<<<<<<< HEAD
 fn start_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
         .direct_message(&context.http, |m| m.content("starting group"));
 }
+=======
+fn clear_user_languages(id: &u64, connection_pool: &Pool) {
+    // User clears the languages
+    diesel::update(schema::user::dsl::user)
+        .set(schema::user::dsl::languages.eq(""))
+        .filter(schema::user::dsl::discord_id.eq(*id as i32))
+        .execute(&connection_pool.get().unwrap()).ok();
+}
+
+fn add_user_langauges() {}
+
+fn get_user_languages(user_id: &u64, connection_pool: &Pool) -> String {
+    use schema::user::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results: std::vec::Vec<User> = user.
+    filter(discord_id.eq(*user_id as i32))
+    .load::<User>(&connection)
+    .expect("error");
+    let return_result = &results[0].languages;
+    return_result.to_string()
+}
+
+fn update_user_languages(user_id: &u64, connection_pool: &Pool) {
+    use schema::user::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results: std::vec::Vec<User> = user.
+    filter(discord_id.eq(*user_id as i32))
+    .load::<User>(&connection)
+    .expect("error");
+}
+
+
+impl EventHandler for Handler {
+    fn reaction_add(&self, context: Context, add_reaction: Reaction) {
+>>>>>>> Add query template for users
 
 fn join_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
@@ -154,20 +201,37 @@ impl EventHandler for Handler {
                 }
             }
 
+            
             // Test existance of message sender
             if is_user_exist(&message_author_id, connection_pool) {
+<<<<<<< HEAD
                 println!(
                     "You're already in the database and your ID is {}",
                     message_author_id
                 );
             // TODO: Add query here to verify that user has been added
             // Insert new user that sent the message
+=======
+                println!("You're already in the database and your ID is {}", message_author_id);
+                // TODO: Add query here to verify that user has been added
+                
+                // Insert new user that sent the message
+>>>>>>> Add query template for users
             } else {
                 insert_user(&message.author.id.0, &message.content, connection_pool);
                 println!(
                     "You've been added to the database. Your ID is {}",
                     message_author_id
                 )
+            }
+            if message_tokens[1] == "clear" {
+                if !is_user_exist(&message_author_id, connection_pool) { return; }
+                else {
+
+                }
+            } else {
+                // Query update
+                println!("{}",get_user_languages(&message_author_id, connection_pool));
             }
         }
         // Test existance of random user_id and print result
