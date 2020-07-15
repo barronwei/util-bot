@@ -1,0 +1,29 @@
+[package]
+name = "utilbot"
+version = "0.1.0"
+authors = ["wlawt <williamlaw.wtl@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ron = "0.5.1"
+chrono = "0.4"
+regex = "0.1"
+dotenv = "0.15.0"
+
+[dependencies.serenity]
+git = "https://github.com/serenity-rs/serenity"
+branch = "current"
+features = [
+  "builder",
+  "cache",
+  "framework",
+  "model",
+  "standard_framework", 
+  "rustls_backend",
+  "utils",
+]
+
+[dependencies.eventual]
+git = "https://github.com/carllerche/eventual"
