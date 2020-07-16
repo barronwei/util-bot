@@ -83,15 +83,22 @@ enum regexmatches {
 #[command]
 fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
     //let remind_message = lazy_static::REMIND_MESSAGE
-    let message = Regex::new(r"\b([A-Za-z0-9\D\S]+)\b").unwrap();
-    //let person = Regex::new(r"@([A-Za-z0-9\D\S])[^\s]+").unwrap();
-    let date = Regex::new(r"([0-9]+)\s?:?([0-9]+)?\s?(min?s|hr?s|day?s|week?s|am|pm)+").unwrap(); // ([0-9]+)?\s(min?s|hr?s|day?s|week?s)+
+    let message = Regex::new(r#""(.*?)""#).unwrap();
+    let person = Regex::new(r"@([A-Za-z0-9\D\S])[^\s]+").unwrap();
+    let date = Regex::new(r"([0-9]+)\s?:?([0-9]+)?\s?(mins?|hrs?|days?|weeks?|am|pm)+").unwrap(); // ([0-9]+)?\s(min?s|hr?s|day?s|week?s)+
+    let user_handle = Regex::new(r"[0-9]+").unwrap();
 
     //let specific_date = Regex::new(r"([0-9]):([0-9]+)\s?([A-Za-z]+)").unwrap();
     let incoming_message = msg.content.replace("~remind", "");
     let remind_message = message.captures(&incoming_message).unwrap();
-    //let remind_person = person.captures(&incoming_message).unwrap();
+    let remind_person = person.captures(&incoming_message).unwrap();
     let remind_date = date.captures(&incoming_message).unwrap();
+    let user_u64 = user_handle.captures(&remind_person[0]).unwrap();
+    //msg.reply(ctx, format!)
+    println!(
+        "{:?}, {:?}, {:?}, {:?}",
+        &remind_person[0], &remind_date[1], &remind_message[1], &user_u64[0]
+    );
 
     // message, person, number (4), unit (mins/hrs)
     /* println!(
@@ -102,10 +109,16 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
     //let (onemin_tx, onemin_rx) = channel();
 
     let borrow_time = remind_date[1].parse::<u64>().unwrap();
-    let borrow_message: String = remind_message[0].to_owned();
+    let borrow_message: String = remind_message[1].to_owned();
     //let should_alert = false;
     //let mutex = std::sync::Mutex::new(should_alert);
     //let arc = std::sync::Arc::new(mutex);
+
+    let num_user_u64 = user_u64[0].parse::<u64>().unwrap();
+    let guild_id = msg.guild_id.unwrap();
+    let member = ctx.http.get_member(guild_id.0, num_user_u64).unwrap();
+    let user_idd = member.user_id();
+    let channel = user_idd.create_dm_channel(&ctx.http).unwrap();
 
     let child;
     let should_notify;
@@ -127,7 +140,7 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
                                                    //use std::time::{Duration, Instant};
     let now = Utc::now();
     let (is_pm, hour) = now.hour12();
-    if &remind_date[2] == "mins" || &remind_date[2] == "min" {
+    if &remind_date[3] == "mins" || &remind_date[3] == "min" {
         //let min_ticks = timer.interval_ms(1000).iter();
         /* loop {
             let _ = onemin_rx.try_recv().map(|reply| println!("{}", reply));
@@ -151,11 +164,27 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         });
 
         child.join().unwrap();
-        msg.reply(ctx, format!("{:?}", borrow_message))?;
+        //msg.reply(ctx, format!("{:?}", borrow_message))?;
+        println!("SENDING MESSAGE!");
+        channel
+            .send_message(&ctx.http, |m| {
+                m.content(format!("{}", borrow_message));
+                m.tts(true);
+
+                /* m.embed(|e| {
+                    e.title("embed boi");
+                    e.description("desc");
+
+                    e
+                }); */
+
+                m
+            })
+            .unwrap();
 
     /*         if truc.load(Ordering::Relaxed) {
     } */
-    } else if &remind_date[2] == "hrs" || &remind_date[2] == "hr" {
+    } else if &remind_date[3] == "hrs" || &remind_date[3] == "hr" {
         should_notify = AtomicBool::new(false);
         let mut should_notify_clone = AtomicBool::new(should_notify.load(Ordering::Relaxed));
         child = thread::spawn(move || {
@@ -164,8 +193,23 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         });
 
         child.join().unwrap();
-        msg.reply(ctx, format!("{:?}", borrow_message))?;
-    } else if &remind_date[2] == "days" || &remind_date[2] == "day" {
+        println!("SENDING MESSAGE!");
+        channel
+            .send_message(&ctx.http, |m| {
+                m.content(format!("{}", borrow_message));
+                m.tts(true);
+
+                /* m.embed(|e| {
+                    e.title("embed boi");
+                    e.description("desc");
+
+                    e
+                }); */
+
+                m
+            })
+            .unwrap();
+    } else if &remind_date[3] == "days" || &remind_date[3] == "day" {
         should_notify = AtomicBool::new(false);
         let mut should_notify_clone = AtomicBool::new(should_notify.load(Ordering::Relaxed));
         child = thread::spawn(move || {
@@ -174,8 +218,23 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         });
 
         child.join().unwrap();
-        msg.reply(ctx, format!("{:?}", borrow_message))?;
-    } else if &remind_date[2] == "weeks" || &remind_date[2] == "week" {
+        println!("SENDING MESSAGE!");
+        channel
+            .send_message(&ctx.http, |m| {
+                m.content(format!("{}", borrow_message));
+                m.tts(true);
+
+                /* m.embed(|e| {
+                    e.title("embed boi");
+                    e.description("desc");
+
+                    e
+                }); */
+
+                m
+            })
+            .unwrap();
+    } else if &remind_date[3] == "weeks" || &remind_date[3] == "week" {
         should_notify = AtomicBool::new(false);
         let mut should_notify_clone = AtomicBool::new(should_notify.load(Ordering::Relaxed));
         child = thread::spawn(move || {
@@ -184,7 +243,22 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         });
 
         child.join().unwrap();
-        msg.reply(ctx, format!("{:?}", borrow_message))?;
+        println!("SENDING MESSAGE!");
+        channel
+            .send_message(&ctx.http, |m| {
+                m.content(format!("{}", borrow_message));
+                m.tts(true);
+
+                /* m.embed(|e| {
+                    e.title("embed boi");
+                    e.description("desc");
+
+                    e
+                }); */
+
+                m
+            })
+            .unwrap();
     } else if &remind_date[3] == "pm" {
         let i_hr = remind_date[1].to_string().parse::<u64>().unwrap();
         let hr = hour.to_string().parse::<u64>().unwrap();
@@ -194,7 +268,7 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
 
         let mut diff_hr: u64 = 0;
         //println!("{}, {}", i_min, m);
-        if i_min > hr {
+        if i_hr > hr {
             diff_hr = i_hr - hr;
         }
 
@@ -215,7 +289,22 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         });
 
         cchild.join().unwrap();
-        msg.reply(ctx, format!("{:?}", borrow_message))?;
+        println!("SENDING MESSAGE!");
+        channel
+            .send_message(&ctx.http, |m| {
+                m.content(format!("{}", borrow_message));
+                m.tts(true);
+
+                /* m.embed(|e| {
+                    e.title("embed boi");
+                    e.description("desc");
+
+                    e
+                }); */
+
+                m
+            })
+            .unwrap();
     } else if &remind_date[3] == "am" {
         if !is_pm {
             // it's am
@@ -248,7 +337,22 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
             });
 
             cchild.join().unwrap();
-            msg.reply(ctx, format!("{:?}", borrow_message))?;
+            println!("SENDING MESSAGE!");
+            channel
+                .send_message(&ctx.http, |m| {
+                    m.content(format!("{}", borrow_message));
+                    m.tts(true);
+
+                    /* m.embed(|e| {
+                        e.title("embed boi");
+                        e.description("desc");
+
+                        e
+                    }); */
+
+                    m
+                })
+                .unwrap();
         } else {
             // it's pm
             // ex. 4:30pm remind at 2:15am
@@ -276,7 +380,22 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
             });
 
             cchild.join().unwrap();
-            msg.reply(ctx, format!("{:?}", borrow_message))?;
+            println!("SENDING MESSAGE!");
+            channel
+                .send_message(&ctx.http, |m| {
+                    m.content(format!("{}", borrow_message));
+                    m.tts(true);
+
+                    /* m.embed(|e| {
+                        e.title("embed boi");
+                        e.description("desc");
+
+                        e
+                    }); */
+
+                    m
+                })
+                .unwrap();
         }
     }
 
