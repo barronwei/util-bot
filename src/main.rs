@@ -500,6 +500,7 @@ impl EventHandler for Handler {
         if message_tokens[0] == "!utilbot" {
             if message_tokens.len() < 2 {
                 println!("You gotta gimme a command first!");
+                return;
             }
             if message_tokens[1] == "pool" {
                 match message_tokens[2] {
