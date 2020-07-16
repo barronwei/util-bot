@@ -24,7 +24,7 @@ type Pool = diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<diesel::PgConnect
 struct NewUser<'a> {
     discord_id: i32,
     languages: &'a str,
-    group_state: i32,
+    pool_state: i32,
 }
 
 #[derive(Queryable)]
@@ -32,12 +32,13 @@ struct User {
     id: i32,
     discord_id: i32,
     languages: String,
-    group_state: i32,
+    pool_state: i32,
 }
 
 #[derive(Insertable)]
 #[table_name = "match_admin"]
 struct NewMatchAdmin {
+    status: bool,
     questions: Vec<String>,
     user_id: i32,
 }
@@ -45,6 +46,7 @@ struct NewMatchAdmin {
 #[derive(Queryable)]
 struct MatchAdmin {
     id: i32,
+    status: bool,
     questions: Vec<String>,
     user_id: i32,
 }
@@ -102,34 +104,41 @@ fn insert_user(id: &u64, languages: &String, connection_pool: &Pool) {
         .values(NewUser {
             discord_id: *id as i32,
             languages: languages,
-            group_state: 0 as i32,
+            // pool_state = 0, 1, 2 for doing nothing, generating pool, joining pool
+            pool_state: 0 as i32,
         })
         .execute(&connection_pool.get().unwrap())
         .unwrap();
 }
 
-fn start_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn start_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("starting group"));
+        .direct_message(&context.http, |m| m.content("starting pool"));
 }
 
-fn join_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn join_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("joining group"));
+        .direct_message(&context.http, |m| m.content("joining pool"));
 }
 
-fn check_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn check_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("checking group"));
+        .direct_message(&context.http, |m| m.content("checking pool"));
 }
 
-fn skrt_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn skrt_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("leaving group"));
+        .direct_message(&context.http, |m| m.content("leaving pool"));
+}
+
+fn match_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+    let _msg = message
+        .author
+        .direct_message(&context.http, |m| m.content("generating matches"));
 }
 
 impl EventHandler for Handler {
@@ -144,13 +153,14 @@ impl EventHandler for Handler {
         let message_author_id = message.author.id.0;
 
         if message_tokens[0] == "!utilbot" {
-            if message_tokens[1] == "group" {
+            if message_tokens[1] == "pool" {
                 match message_tokens[2] {
-                    "start" => start_group(&context, &message, &message_tokens),
-                    "join" => join_group(&context, &message, &message_tokens),
-                    "check" => check_group(&context, &message, &message_tokens),
-                    "skrt" => skrt_group(&context, &message, &message_tokens),
-                    _ => println!("Bad group command"),
+                    "start" => start_pool(&context, &message, &message_tokens),
+                    "join" => join_pool(&context, &message, &message_tokens),
+                    "check" => check_pool(&context, &message, &message_tokens),
+                    "skrt" => skrt_pool(&context, &message, &message_tokens),
+                    "match" => match_pool(&context, &message, &message_tokens),
+                    _ => println!("Bad pool command"),
                 }
             }
 
