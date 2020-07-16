@@ -133,13 +133,30 @@ fn get_user_languages(user_id: &u64, connection_pool: &Pool) -> Vec<String> {
     return_result.to_vec()
 }
 
-fn update_user_languages(user_id: &u64, languages: Vec<String>, connection_pool: &Pool) {
+fn update_user_languages(user_id: &u64, new_languages: Vec<String>, connection_pool: &Pool) {
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
+
     let results: std::vec::Vec<User> = user.
     filter(discord_id.eq(*user_id as i32))
     .load::<User>(&connection)
     .expect("error");
+    
+    // Assuming dicord_id unique
+    let mut user_languages = &results[0].languages;
+    let length = results[0].languages.len();
+
+    for language in new_languages {
+        if !user_languages.contains(&language) {
+            let mut old = get_user_languages(user_id, connection_pool);
+            old.push(language);
+
+            diesel::update(schema::user::dsl::user)
+                .set(schema::user::dsl::languages.eq(old))
+                .filter(schema::user::dsl::discord_id.eq(*user_id as i32))
+                .execute(&connection_pool.get().unwrap()).ok();
+        }
+    }
 }
 
 
@@ -173,6 +190,9 @@ impl EventHandler for Handler {
         let message_author_id = message.author.id.0;
 
         if message_tokens[0] == "!utilbot" {
+            if message_tokens.len() < 2 {
+                return;
+            }
             if message_tokens[1] == "group" {
                 match message_tokens[2] {
                     "start" => start_group(&context, &message, &message_tokens),
@@ -199,6 +219,10 @@ impl EventHandler for Handler {
                     println!("No record present to view");
                 }
             } else if message_tokens[1] == "add" {
+                if message_tokens.len() < 3 {
+                    println!("Not enough arguments");
+                    return;
+                }
                 let cfg_strings: Vec<&str> = message_tokens[2..].to_vec();
                 let mut strings_vec: Vec<String> = Vec::new();
                 for s in &cfg_strings {
