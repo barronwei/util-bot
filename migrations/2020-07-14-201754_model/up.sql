@@ -9,7 +9,8 @@ create table if not exists "user" (
 create table if not exists "match_admin" (
     id serial primary key,
     user_id integer not null references "user" (id) on delete cascade,
-    status bool not null
+    status bool not null,
+    group_size integer not null
 );
 
 create table if not exists "pool_questions" (
