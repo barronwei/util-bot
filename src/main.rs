@@ -305,7 +305,7 @@ fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
     // for each group: pick somebody as the "group leader"
     // start a cost counter at 0 and try to find somebody with that distance in responses
     // if nobody has that cost with the "group leader," increment cost counter and repeat
-    // do so until team is full, and repeat until all groups are done.
+    // do so until current group is full, and repeat until all groups are done.
 }
 
 fn start_pool(
