@@ -145,6 +145,50 @@ fn get_user_id(uid: &u64, connection_pool: &Pool) -> i32 {
     results[0].id
 }
 
+fn get_latest_started_pool(uid: &u64, connection_pool: &Pool) -> i32 {
+    use schema::match_admin::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results = match_admin
+        .filter(user_id.eq(*uid as i32))
+        .order(id.desc())
+        .load::<MatchAdmin>(&connection)
+        .expect("error getting latest started pool");
+    results[0].id
+}
+
+fn get_latest_joined_pool(uid: &u64, connection_pool: &Pool) -> i32 {
+    use schema::match_responses::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results = match_responses
+        .filter(user_id.eq(*uid as i32))
+        .order(id.desc())
+        .load::<MatchResponses>(&connection)
+        .expect("error getting latest joined pool");
+    results[0].id
+}
+
+fn insert_question(uid: &u64, connection_pool: &Pool, text: &String) {
+    let connection = connection_pool.get().unwrap();
+    diesel::insert_into(schema::pool_questions::dsl::pool_questions)
+        .values(NewPoolQuestions {
+            pool_id: get_latest_started_pool(&uid, &connection_pool),
+            question: text.to_string(),
+        })
+        .execute(&connection)
+        .unwrap();
+}
+
+fn insert_response(uid: &u64, connection_pool: &Pool, text: &String) {
+    let connection = connection_pool.get().unwrap();
+    diesel::insert_into(schema::pool_responses::dsl::pool_responses)
+        .values(NewPoolResponses {
+            response_id: get_latest_joined_pool(&uid, &connection_pool),
+            answer: text.to_string(),
+        })
+        .execute(&connection)
+        .unwrap();
+}
+
 fn insert_pool(uid: &u64, connection_pool: &Pool) {
     let connection = connection_pool.get().unwrap();
     diesel::insert_into(schema::match_admin::dsl::match_admin)
@@ -246,7 +290,8 @@ fn parse_pool_activity(
 ) {
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
-    if get_pool_status(&message.author.id.0, &connection_pool) > 0 {
+    let status = get_pool_status(&message.author.id.0, &connection_pool);
+    if status > 0 {
         // 2 is creating
         // 1 is joining
         if message_tokens.len() == 0 {
@@ -261,13 +306,27 @@ fn parse_pool_activity(
             if updated.is_err() {
                 let _msg = message
                     .author
-                    .direct_message(&context.http, |m| m.content(format!("unknown issue")));
+                    .direct_message(&context.http, |m| m.content("unknown issue"));
             }
+
+            let _msg = message
+                .author
+                .direct_message(&context.http, |m| m.content("Finished!"));
 
             return;
         }
 
-        // update response or answer depending on status
+        if status == 2 {
+            insert_question(&message.author.id.0, &connection_pool, &message.content);
+        }
+
+        if status == 1 {
+            insert_response(&message.author.id.0, &connection_pool, &message.content);
+        }
+
+        let _msg = message
+            .author
+            .direct_message(&context.http, |m| m.content("Add another or say `done`!"));
     };
 }
 
