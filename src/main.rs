@@ -24,7 +24,7 @@ type Pool = diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<diesel::PgConnect
 struct NewUser<'a> {
     discord_id: i32,
     languages: Vec<&'a str>,
-    group_state: i32,
+    pool_state: i32,
 }
 
 #[derive(Queryable)]
@@ -32,7 +32,7 @@ struct User {
     id: i32,
     discord_id: i32,
     languages: Vec<String>,
-    group_state: i32,
+    pool_state: i32,
 }
 
 #[derive(Insertable)]
