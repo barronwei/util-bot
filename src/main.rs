@@ -93,6 +93,11 @@ struct PoolResponses {
     answer: String,
 }
 
+struct CompleteResponses {
+    match_responses: MatchResponses,
+    pool_responses: Vec<PoolResponses>,
+}
+
 #[derive(Insertable)]
 #[table_name = "match_groups"]
 struct NewMatchGroups {
@@ -266,13 +271,26 @@ fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
 
     let total_pool_size = response_headers.len() as f64;
     let mut responses_by_user: Vec<Vec<PoolResponses>> = Vec::new();
-    for response_header in response_headers.into_iter() {
+    let response_header_iter = response_headers.iter();
+    for response_header in response_header_iter {
         let responses = schema::pool_responses::dsl::pool_responses
             .filter(schema::pool_responses::dsl::response_id.eq(response_header.id))
             .limit(question_count)
             .load::<PoolResponses>(&connection)
             .expect("error getting pool response from header");
         responses_by_user.push(responses);
+    }
+
+    let mut final_responses: Vec<CompleteResponses> = Vec::new();
+    for it in response_headers
+        .into_iter()
+        .zip(responses_by_user.into_iter())
+    {
+        let (match_responses, pool_responses) = it;
+        final_responses.push(CompleteResponses {
+            match_responses,
+            pool_responses,
+        });
     }
 
     // compute group sizes
@@ -282,6 +300,12 @@ fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
     let leftover_count = total_pool_size - (group_count_at_max_size * pool.group_size as f64);
     let last_group_size = (leftover_count / pool.group_size as f64).floor();
     let second_to_last_group_size = leftover_count - last_group_size;
+    let final_groups: Vec<Vec<CompleteResponses>> = Vec::new();
+    // algorithm:
+    // for each group: pick somebody as the "group leader"
+    // start a cost counter at 0 and try to find somebody with that distance in responses
+    // if nobody has that cost with the "group leader," increment cost counter and repeat
+    // do so until team is full, and repeat until all groups are done.
 }
 
 fn start_pool(
