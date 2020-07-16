@@ -2,6 +2,9 @@
 extern crate diesel;
 extern crate dotenv;
 extern crate serenity;
+extern crate regex;
+
+use regex::Regex;
 
 use diesel::prelude::*;
 use dotenv::dotenv;
@@ -23,6 +26,7 @@ type Pool = diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<diesel::PgConnect
 #[table_name = "user"]
 struct NewUser<'a> {
     discord_id: i32,
+    discord_id_full: i64,
     languages: Vec<&'a str>,
     pool_state: i32,
 }
@@ -31,6 +35,7 @@ struct NewUser<'a> {
 struct User {
     id: i32,
     discord_id: i32,
+    discord_id_full: i64,
     languages: Vec<String>,
     pool_state: i32,
 }
@@ -114,8 +119,57 @@ struct MatchGroups {
 
 struct PooledConnection(Pool);
 
+#[derive(PartialEq)]
+enum ReplyType {
+    Add,
+    Clear,
+    GetHelp,
+}
+
 impl TypeMapKey for PooledConnection {
     type Value = Pool;
+}
+
+fn get_proficient_users(connection_pool: &Pool, language: &String) -> Vec<i64> {
+    use schema::user::dsl::*;
+    let results = user
+        .filter(languages.contains(vec![language]))
+        .load::<User>(&connection_pool.get().unwrap())
+        .unwrap();
+
+    // Used for debugging lololololol
+    // for result in results {
+    //     println!("{} knows {}", result.discord_id_full, language);
+    // }
+    results
+        .iter()
+        .map(|result| result.discord_id_full)
+        .collect()
+}
+
+fn reply_for_add_view(
+    uid: &u64,
+    message: &Message,
+    context: &Context,
+    connection_pool: &Pool
+) {
+    let langs = get_user_languages(uid, connection_pool);
+    let tag = message.author.mention();
+    let mut message_return;
+    if langs.len() == 0 {
+        message_return = format!("Hey {}, haven't added anything :cry: \n", tag);
+    } else {
+        message_return = format!("Hey {}, you've added\n", tag);
+    }
+
+    let channel_id = message.channel_id;
+    let connected = &langs.join("\n");
+    message_return.push_str(connected);
+    channel_id.send_message(&context.http, |m| {
+        m.content(message_return);
+        m
+    }).unwrap();
+
 }
 
 fn is_user_exist(id: &u64, connection_pool: &Pool) -> bool {
@@ -134,6 +188,7 @@ fn insert_user(id: &u64, languages: Vec<String>, connection_pool: &Pool) {
     diesel::insert_into(schema::user::dsl::user)
         .values(NewUser {
             discord_id: *id as i32,
+            discord_id_full: *id as i64,
             languages: languages.iter().map(AsRef::as_ref).collect(),
             // pool_state = 0, 1, 2 for doing nothing, generating pool, joining pool
             pool_state: 0 as i32,
@@ -216,16 +271,17 @@ fn clear_user_languages(id: &u64, connection_pool: &Pool) {
     diesel::update(schema::user::dsl::user)
         .set(schema::user::dsl::languages.eq(empty))
         .filter(schema::user::dsl::discord_id.eq(*id as i32))
-        .execute(&connection_pool.get().unwrap()).ok();
+        .execute(&connection_pool.get().unwrap())
+        .ok();
 }
 
 fn get_user_languages(user_id: &u64, connection_pool: &Pool) -> Vec<String> {
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
-    let results: std::vec::Vec<User> = user.
-    filter(discord_id.eq(*user_id as i32))
-    .load::<User>(&connection)
-    .expect("error");
+    let results: std::vec::Vec<User> = user
+        .filter(discord_id.eq(*user_id as i32))
+        .load::<User>(&connection)
+        .expect("error");
     let return_result = &results[0].languages;
     return_result.to_vec()
 }
@@ -234,11 +290,10 @@ fn update_user_languages(user_id: &u64, new_languages: Vec<String>, connection_p
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
 
-    let results: std::vec::Vec<User> = user.
-    filter(discord_id.eq(*user_id as i32))
-    .load::<User>(&connection)
-    .expect("error");
-    
+    let results: std::vec::Vec<User> = user
+        .filter(discord_id.eq(*user_id as i32))
+        .load::<User>(&connection)
+        .expect("error");
     // Assuming dicord_id unique
     let mut user_languages = &results[0].languages;
     let length = results[0].languages.len();
@@ -251,11 +306,11 @@ fn update_user_languages(user_id: &u64, new_languages: Vec<String>, connection_p
             diesel::update(schema::user::dsl::user)
                 .set(schema::user::dsl::languages.eq(old))
                 .filter(schema::user::dsl::discord_id.eq(*user_id as i32))
-                .execute(&connection_pool.get().unwrap()).ok();
+                .execute(&connection_pool.get().unwrap())
+                .ok();
         }
     }
 }
-
 
 fn insert_question(uid: &u64, connection_pool: &Pool, text: &String) {
     let connection = connection_pool.get().unwrap();
@@ -755,10 +810,7 @@ impl EventHandler for Handler {
                 );
             // TODO: Add query here to verify that user has been added
             // Insert new user that sent the message
-
-            } else {
-                println!("Bad command")
-            }
+            } else { println!("Bad command"); }
         }
 
         if message_tokens[0] == "!utilbot" {
@@ -778,19 +830,15 @@ impl EventHandler for Handler {
             } else if message_tokens[1] == "clear" {
                 if is_user_exist(&message_author_id, connection_pool) {
                     clear_user_languages(&message_author_id, connection_pool);
-                } else {
-                    println!("No record present to clear");
-                }
+                    
+                } else { println!("No record present to clear"); }
             } else if message_tokens[1] == "view" {
                 if is_user_exist(&message_author_id, connection_pool) {
                     let languages = get_user_languages(&message_author_id, connection_pool);
                     println!("Languages: ");
-                    for language in languages {
-                        println!("{}", language);
-                    }
-                } else {
-                    println!("No record present to view");
-                }
+                    for language in languages { println!("{}", language); }
+                } else { println!("No record present to view"); }
+                reply_for_add_view(&message_author_id, &message, &context, connection_pool);
             } else if message_tokens[1] == "add" {
                 if message_tokens.len() < 3 {
                     println!("Not enough arguments");
@@ -798,17 +846,23 @@ impl EventHandler for Handler {
                 }
                 let cfg_strings: Vec<&str> = message_tokens[2..].to_vec();
                 let mut strings_vec: Vec<String> = Vec::new();
-                for s in &cfg_strings {
-                    strings_vec.push(s.to_string());
-                }
+                for s in &cfg_strings { strings_vec.push(s.to_string()); }
                 if is_user_exist(&message_author_id, connection_pool) {
                     update_user_languages(&message_author_id, strings_vec, connection_pool);
                 } else {
-                    insert_user(&message_author_id, strings_vec , connection_pool);
+                    insert_user(&message_author_id, strings_vec, connection_pool);
                 }
-            } else {
-                println!("Bad command");
-            }
+                reply_for_add_view(&message_author_id, &message, &context, connection_pool);
+            } else if message_tokens[1] == "get-help" {
+                if message_tokens.len() < 4 {
+                    println!("Not enough arguments");
+                    return;
+                }
+                let language: String = message_tokens[2].to_string();
+                let question: Vec<&str> = message_tokens[3..].to_vec();
+                let result_ids = get_proficient_users(connection_pool, &language);
+            // Ping users here
+            } else { println!("Bad command"); }
         }
 
         if message.is_private() {
