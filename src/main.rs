@@ -428,7 +428,7 @@ fn match_pool(
     let match_admin;
     match res {
         Err(_) => {
-            message.author.direct_message(&context.http, |m| {
+            let _msg = message.author.direct_message(&context.http, |m| {
                 m.content(format!("pool_id {} is not valid", pool_id))
             });
             return;
@@ -438,14 +438,21 @@ fn match_pool(
 
     let discord_id = message.author.id.0;
     if match_admin.user_id != get_user_id(&discord_id, &connection_pool) {
-        message.author.direct_message(&context.http, |m| {
+        let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("You do not own pool {}", pool_id))
         });
         return;
     }
 
+    if !match_admin.status {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("pool {} is not active", pool_id))
+        });
+        return;
+    }
+
     if !deactivate_pool(&pool_id, &connection_pool) {
-        message.author.direct_message(&context.http, |m| {
+        let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("Failed to deactivate pool {}", pool_id))
         });
         return;
