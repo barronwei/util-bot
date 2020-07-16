@@ -203,6 +203,17 @@ fn insert_pool(uid: &u64, connection_pool: &Pool, size: i32) {
         .unwrap();
 }
 
+fn insert_response_header(uid: &u64, connection_pool: &Pool, match_id: i32) {
+    let connection = connection_pool.get().unwrap();
+    diesel::insert_into(schema::match_responses::dsl::match_responses)
+        .values(NewMatchResponses {
+            user_id: get_user_id(&uid, &connection_pool),
+            match_id,
+        })
+        .execute(&connection)
+        .unwrap();
+}
+
 fn get_pool_status(uid: &u64, connection_pool: &Pool) -> i32 {
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
@@ -264,13 +275,61 @@ fn start_pool(
 
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content(format!("Started pool of size {}! Just keep sending me questions individually, and ping me with `done` when you are done!", message_tokens[3])));
+        .direct_message(&context.http, |m| m.content(format!("Started pool of size {}! Just keep sending me questions individually, and ping me with `done` when you are!", message_tokens[3])));
 }
 
-fn join_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
-    let _msg = message
-        .author
-        .direct_message(&context.http, |m| m.content("joining pool"));
+fn join_pool(
+    context: &Context,
+    message: &Message,
+    message_tokens: &Vec<&str>,
+    connection_pool: &Pool,
+) {
+    use schema::user::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    if get_pool_status(&message.author.id.0, &connection_pool) != 0 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!(
+                "You are in the middle of creating or joining a pool"
+            ))
+        });
+        return;
+    }
+    if message_tokens.len() < 4 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Please use `!utilbot pool join POOL_ID`!"))
+        });
+        return;
+    }
+
+    let pool_id = message_tokens[3].parse::<i32>();
+    if pool_id.is_err() || pool_id.unwrap() < 1 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Please use a proper pool id"))
+        });
+        return;
+    }
+
+    let updated = diesel::update(user.filter(discord_id.eq(message.author.id.0 as i32)))
+        .set(pool_state.eq(1))
+        .get_result::<User>(&connection);
+
+    if updated.is_err() {
+        let _msg = message
+            .author
+            .direct_message(&context.http, |m| m.content(format!("unknown issue")));
+    }
+
+    insert_response_header(
+        &message.author.id.0,
+        &connection_pool,
+        message_tokens[3].parse::<i32>().unwrap(),
+    );
+
+    // TODO(barronwei): get all questions for pool id and display to user
+
+    let _msg = message.author.direct_message(&context.http, |m| {
+        m.content("Answer the above questions individually, and ping me with `done` when you are!")
+    });
 }
 
 fn check_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
@@ -387,7 +446,7 @@ impl EventHandler for Handler {
             if message_tokens[1] == "pool" {
                 match message_tokens[2] {
                     "start" => start_pool(&context, &message, &message_tokens, &connection_pool),
-                    "join" => join_pool(&context, &message, &message_tokens),
+                    "join" => join_pool(&context, &message, &message_tokens, &connection_pool),
                     "check" => check_pool(&context, &message, &message_tokens),
                     "skrt" => skrt_pool(&context, &message, &message_tokens),
                     "match" => match_pool(&context, &message, &message_tokens),
