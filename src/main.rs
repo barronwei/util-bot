@@ -2,9 +2,6 @@
 extern crate diesel;
 extern crate dotenv;
 extern crate serenity;
-extern crate regex;
-
-use regex::Regex;
 
 use diesel::prelude::*;
 use dotenv::dotenv;
@@ -147,7 +144,7 @@ fn get_proficient_users(connection_pool: &Pool, language: &String) -> Vec<i64> {
         .collect()
 }
 
-fn reply_for_add_view(
+fn reply_for_add_view (
     uid: &u64,
     message: &Message,
     context: &Context,
@@ -157,7 +154,7 @@ fn reply_for_add_view(
     let tag = message.author.mention();
     let mut message_return;
     if langs.len() == 0 {
-        message_return = format!("Hey {}, haven't added anything :cry: \n", tag);
+        message_return = format!("Hey {}, you haven't added anything :cry: \n", tag);
     } else {
         message_return = format!("Hey {}, you've added\n", tag);
     }
@@ -165,11 +162,46 @@ fn reply_for_add_view(
     let channel_id = message.channel_id;
     let connected = &langs.join("\n");
     message_return.push_str(connected);
+    // Can also use channel_id.say or somehting like tath
     channel_id.send_message(&context.http, |m| {
         m.content(message_return);
         m
     }).unwrap();
 
+}
+
+fn ping_proficient_users (
+    uid: &u64,
+    recipient_ids: &Vec<i64>,
+    lang: &String,
+    question: &Vec<&str>,
+    message: &Message,
+    context: &Context
+) {
+    let guild_id = message.guild_id.unwrap();
+    if recipient_ids.len() == 0 {  
+        let return_string = format!("Unfortunaetly, no one has added {}", lang);
+        let channel_id = message.channel_id;
+        channel_id.send_message(&context.http, |m| {
+            m.content(return_string);
+        m
+        }).unwrap();
+    }
+    for recipient in recipient_ids.iter() {
+        let member = context.http.get_member(guild_id.0, *recipient as u64).unwrap();
+        let user_id = member.user_id();
+        let private_channel = user_id.create_dm_channel(&context.http).unwrap();
+        let connected_question = question.join(" ");
+        let user_line = format!("A fellow with userID {} ", message.author.tag());
+        let help_line = format!("needs help with {}\n", *lang);
+        let question_line = format!("Their question is: {}", connected_question);
+        let return_string = format!("{}{}{}",user_line,help_line,question_line);
+
+        private_channel.send_message(&context.http, |m| {
+            m.content(return_string);
+        m
+        }).unwrap();
+    }
 }
 
 fn is_user_exist(id: &u64, connection_pool: &Pool) -> bool {
@@ -295,8 +327,7 @@ fn update_user_languages(user_id: &u64, new_languages: Vec<String>, connection_p
         .load::<User>(&connection)
         .expect("error");
     // Assuming dicord_id unique
-    let mut user_languages = &results[0].languages;
-    let length = results[0].languages.len();
+    let user_languages = &results[0].languages;
 
     for language in new_languages {
         if !user_languages.contains(&language) {
@@ -860,8 +891,9 @@ impl EventHandler for Handler {
                 }
                 let language: String = message_tokens[2].to_string();
                 let question: Vec<&str> = message_tokens[3..].to_vec();
-                let result_ids = get_proficient_users(connection_pool, &language);
-            // Ping users here
+                let result_ids: Vec<i64> = get_proficient_users(connection_pool, &language);
+                ping_proficient_users(&message_author_id, &result_ids, &language, &question, &message, &context);
+                // Ping users here
             } else { println!("Bad command"); }
         }
 
