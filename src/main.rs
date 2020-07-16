@@ -481,15 +481,30 @@ impl EventHandler for Handler {
         let message_tokens: Vec<&str> = message.content.split(" ").collect();
         let message_author_id = message.author.id.0;
 
+        if message_tokens[0] == "!utilbot" || message.is_private() {
+            // Keep this first to guarantee that the user exists
+            // Test existance of message sender
+            if is_user_exist(&message_author_id, connection_pool) {
+                println!(
+                    "You're already in the database and your ID is {}",
+                    message_author_id
+                );
+            // TODO: Add query here to verify that user has been added
+            // Insert new user that sent the message
+
+            } else {
+                println!("Bad command")
+            }
+        }
 
         if message_tokens[0] == "!utilbot" {
             if message_tokens.len() < 2 {
-                return;
+                println!("You gotta gimme a command first!");
             }
             if message_tokens[1] == "pool" {
                 match message_tokens[2] {
-                    "start" => start_pool(&context, &message, &message_tokens),
-                    "join" => join_pool(&context, &message, &message_tokens),
+                    "start" => start_pool(&context, &message, &message_tokens, &connection_pool),
+                    "join" => join_pool(&context, &message, &message_tokens, &connection_pool),
                     "check" => check_pool(&context, &message, &message_tokens),
                     "skrt" => skrt_pool(&context, &message, &message_tokens),
                     "match" => match_pool(&context, &message, &message_tokens),
@@ -526,44 +541,14 @@ impl EventHandler for Handler {
                 } else {
                     insert_user(&message_author_id, strings_vec , connection_pool);
                 }
-
-        if message_tokens[0] == "!utilbot" || message.is_private() {
-            // Keep this first to guarantee that the user exists
-            // Test existance of message sender
-            if is_user_exist(&message_author_id, connection_pool) {
-                println!(
-                    "You're already in the database and your ID is {}",
-                    message_author_id
-                );
-            // TODO: Add query here to verify that user has been added
-            // Insert new user that sent the message
-
             } else {
-                println!("Bad command")
-            }
-        }
-
-        if message_tokens[0] == "!utilbot" {
-            if message_tokens[1] == "pool" {
-                match message_tokens[2] {
-                    "start" => start_pool(&context, &message, &message_tokens, &connection_pool),
-                    "join" => join_pool(&context, &message, &message_tokens, &connection_pool),
-                    "check" => check_pool(&context, &message, &message_tokens),
-                    "skrt" => skrt_pool(&context, &message, &message_tokens),
-                    "match" => match_pool(&context, &message, &message_tokens),
-                    _ => println!("Bad pool command"),
-                }
+                println!("Bad command");
             }
         }
 
         if message.is_private() {
             parse_pool_activity(&context, &message, &message_tokens, connection_pool);
         }
-        // Test existance of random user_id and print result
-        let test2: bool = is_user_exist(&032458097234, connection_pool);
-        // Print results
-        println!("UserID: {} Exists: {}", 1203948799, test2);
-
     }
 
     fn ready(&self, context: Context, bot_status: Ready) {
