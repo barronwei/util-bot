@@ -23,7 +23,7 @@ type Pool = diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<diesel::PgConnect
 #[table_name = "user"]
 struct NewUser<'a> {
     discord_id: i32,
-    languages: &'a str,
+    languages: Vec<&'a str>,
     pool_state: i32,
 }
 
@@ -31,7 +31,7 @@ struct NewUser<'a> {
 struct User {
     id: i32,
     discord_id: i32,
-    languages: String,
+    languages: Vec<String>,
     pool_state: i32,
 }
 
@@ -129,12 +129,12 @@ fn is_user_exist(id: &u64, connection_pool: &Pool) -> bool {
     .unwrap()
 }
 
-fn insert_user(id: &u64, languages: &String, connection_pool: &Pool) {
+fn insert_user(id: &u64, languages: Vec<String>, connection_pool: &Pool) {
     // NewUser is the struct used for inserting into the database
     diesel::insert_into(schema::user::dsl::user)
         .values(NewUser {
             discord_id: *id as i32,
-            languages: languages,
+            languages: languages.iter().map(AsRef::as_ref).collect(),
             // pool_state = 0, 1, 2 for doing nothing, generating pool, joining pool
             pool_state: 0 as i32,
         })
@@ -210,6 +210,52 @@ fn deactivate_pool(uid: &i32, connection_pool: &Pool) -> bool {
     }
     true
 }
+fn clear_user_languages(id: &u64, connection_pool: &Pool) {
+    // User clears the languages
+    let empty: Vec<String> = Vec::new();
+    diesel::update(schema::user::dsl::user)
+        .set(schema::user::dsl::languages.eq(empty))
+        .filter(schema::user::dsl::discord_id.eq(*id as i32))
+        .execute(&connection_pool.get().unwrap()).ok();
+}
+
+fn get_user_languages(user_id: &u64, connection_pool: &Pool) -> Vec<String> {
+    use schema::user::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results: std::vec::Vec<User> = user.
+    filter(discord_id.eq(*user_id as i32))
+    .load::<User>(&connection)
+    .expect("error");
+    let return_result = &results[0].languages;
+    return_result.to_vec()
+}
+
+fn update_user_languages(user_id: &u64, new_languages: Vec<String>, connection_pool: &Pool) {
+    use schema::user::dsl::*;
+    let connection = connection_pool.get().unwrap();
+
+    let results: std::vec::Vec<User> = user.
+    filter(discord_id.eq(*user_id as i32))
+    .load::<User>(&connection)
+    .expect("error");
+    
+    // Assuming dicord_id unique
+    let mut user_languages = &results[0].languages;
+    let length = results[0].languages.len();
+
+    for language in new_languages {
+        if !user_languages.contains(&language) {
+            let mut old = get_user_languages(user_id, connection_pool);
+            old.push(language);
+
+            diesel::update(schema::user::dsl::user)
+                .set(schema::user::dsl::languages.eq(old))
+                .filter(schema::user::dsl::discord_id.eq(*user_id as i32))
+                .execute(&connection_pool.get().unwrap()).ok();
+        }
+    }
+}
+
 
 fn insert_question(uid: &u64, connection_pool: &Pool, text: &String) {
     let connection = connection_pool.get().unwrap();
@@ -709,16 +755,17 @@ impl EventHandler for Handler {
                 );
             // TODO: Add query here to verify that user has been added
             // Insert new user that sent the message
+
             } else {
-                insert_user(&message.author.id.0, &message.content, connection_pool);
-                println!(
-                    "You've been added to the database. Your ID is {}",
-                    message_author_id
-                )
+                println!("Bad command")
             }
         }
 
         if message_tokens[0] == "!utilbot" {
+            if message_tokens.len() < 2 {
+                println!("You gotta gimme a command first!");
+                return;
+            }
             if message_tokens[1] == "pool" {
                 match message_tokens[2] {
                     "start" => start_pool(&context, &message, &message_tokens, &connection_pool),
@@ -728,16 +775,45 @@ impl EventHandler for Handler {
                     "match" => match_pool(&context, &message, &message_tokens, &connection_pool),
                     _ => println!("Bad pool command"),
                 }
+            } else if message_tokens[1] == "clear" {
+                if is_user_exist(&message_author_id, connection_pool) {
+                    clear_user_languages(&message_author_id, connection_pool);
+                } else {
+                    println!("No record present to clear");
+                }
+            } else if message_tokens[1] == "view" {
+                if is_user_exist(&message_author_id, connection_pool) {
+                    let languages = get_user_languages(&message_author_id, connection_pool);
+                    println!("Languages: ");
+                    for language in languages {
+                        println!("{}", language);
+                    }
+                } else {
+                    println!("No record present to view");
+                }
+            } else if message_tokens[1] == "add" {
+                if message_tokens.len() < 3 {
+                    println!("Not enough arguments");
+                    return;
+                }
+                let cfg_strings: Vec<&str> = message_tokens[2..].to_vec();
+                let mut strings_vec: Vec<String> = Vec::new();
+                for s in &cfg_strings {
+                    strings_vec.push(s.to_string());
+                }
+                if is_user_exist(&message_author_id, connection_pool) {
+                    update_user_languages(&message_author_id, strings_vec, connection_pool);
+                } else {
+                    insert_user(&message_author_id, strings_vec , connection_pool);
+                }
+            } else {
+                println!("Bad command");
             }
         }
 
         if message.is_private() {
             parse_pool_activity(&context, &message, &message_tokens, connection_pool);
         }
-        // Test existance of random user_id and print result
-        let test2: bool = is_user_exist(&032458097234, connection_pool);
-        // Print results
-        println!("UserID: {} Exists: {}", 1203948799, test2);
     }
 
     fn ready(&self, context: Context, bot_status: Ready) {
