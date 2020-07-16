@@ -39,7 +39,6 @@ struct User {
 #[table_name = "match_admin"]
 struct NewMatchAdmin {
     status: bool,
-    questions: Vec<String>,
     user_id: i32,
 }
 
@@ -54,7 +53,6 @@ struct MatchAdmin {
 #[derive(Insertable)]
 #[table_name = "match_responses"]
 struct NewMatchResponses {
-    answers: Vec<bool>,
     match_id: i32,
     user_id: i32,
 }
