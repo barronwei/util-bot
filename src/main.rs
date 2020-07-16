@@ -152,6 +152,16 @@ fn get_user_id(uid: &u64, connection_pool: &Pool) -> i32 {
     results[0].id
 }
 
+fn get_discord_id(uid: &i32, connection_pool: &Pool) -> i32 {
+    use schema::user::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results = user
+        .filter(id.eq(*uid))
+        .load::<User>(&connection)
+        .expect("error getting user");
+    results[0].discord_id
+}
+
 fn get_latest_started_pool(uid: &u64, connection_pool: &Pool) -> i32 {
     use schema::match_admin::dsl::*;
     let connection = connection_pool.get().unwrap();
@@ -358,6 +368,20 @@ fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
                 number_of_full_groups += 1;
             }
         }
+    }
+
+    // add new matches to the database
+    for group in final_groups.iter() {
+        diesel::insert_into(schema::match_groups::dsl::match_groups)
+            .values(NewMatchGroups {
+                match_id: pool.id,
+                members: group
+                    .iter()
+                    .map(|x| get_discord_id(&x.match_responses.user_id, &connection_pool))
+                    .collect::<Vec<i32>>(),
+            })
+            .execute(&connection)
+            .unwrap();
     }
 }
 
