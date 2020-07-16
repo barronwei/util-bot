@@ -256,6 +256,18 @@ fn get_pool_status(uid: &u64, connection_pool: &Pool) -> i32 {
     results[0].pool_state
 }
 
+fn get_cost(user1: &CompleteResponses, user2: &CompleteResponses) -> u32 {
+    let mut cost = 0;
+    for it in user1.pool_responses.iter().zip(user2.pool_responses.iter()) {
+        let (x, y) = it;
+        // assume yes (1) or no (0)
+        if x.answer != y.answer {
+            cost += 1;
+        }
+    }
+    cost
+}
+
 fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
     let connection = connection_pool.get().unwrap();
     let results = schema::pool_questions::dsl::pool_questions
@@ -300,12 +312,53 @@ fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
     let leftover_count = total_pool_size - (group_count_at_max_size * pool.group_size as f64);
     let last_group_size = (leftover_count / pool.group_size as f64).floor();
     let second_to_last_group_size = leftover_count - last_group_size;
-    let final_groups: Vec<Vec<CompleteResponses>> = Vec::new();
+    let total_group_count = group_count_at_max_size + 2 as f64;
+    let mut final_groups: Vec<Vec<CompleteResponses>> = Vec::new();
+
     // algorithm:
     // for each group: pick somebody as the "group leader"
-    // start a cost counter at 0 and try to find somebody with that distance in responses
-    // if nobody has that cost with the "group leader," increment cost counter and repeat
-    // do so until current group is full, and repeat until all groups are done.
+    // for each remaining user: find lowest cost in distance to "group leader" with incomplete group and place
+
+    let mut costs: Vec<(u32, u32)> = Vec::new();
+
+    let mut number_of_full_groups = 0;
+    for (pos, e) in final_responses.into_iter().enumerate() {
+        // set up leaders
+        if (pos as f64) < total_group_count {
+            final_groups[pos].push(e);
+            continue;
+        }
+
+        for (index, el) in final_groups.iter().enumerate() {
+            // if at full capacity
+            if (el.len() as i32) == pool.group_size {
+                costs[index] = (index as u32, std::u32::MAX);
+            };
+
+            // if at full capacity for the second to last group
+            if (el.len() as f64) == second_to_last_group_size
+                && number_of_full_groups + 1 == (total_group_count as i32)
+            {
+                costs[index] = (index as u32, std::u32::MAX);
+            }
+
+            let leader = &el[0];
+            costs[index] = (index as u32, get_cost(leader, &e));
+        }
+
+        let (assigned, _) = costs.iter().min_by_key(|x| x.1).unwrap();
+        final_groups[*assigned as usize].push(e);
+
+        if number_of_full_groups < (group_count_at_max_size as i32) {
+            if (final_groups[*assigned as usize].len() as i32) == pool.group_size {
+                number_of_full_groups += 1;
+            };
+        } else {
+            if (final_groups[*assigned as usize].len() as f64) == second_to_last_group_size {
+                number_of_full_groups += 1;
+            }
+        }
+    }
 }
 
 fn start_pool(
