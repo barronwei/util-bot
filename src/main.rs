@@ -118,6 +118,7 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
     let guild_id = msg.guild_id.unwrap();
     let member = ctx.http.get_member(guild_id.0, num_user_u64).unwrap();
     let user_idd = member.user_id();
+    let user_name = member.display_name();
     let channel = user_idd.create_dm_channel(&ctx.http).unwrap();
 
     let child;
@@ -168,15 +169,8 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         println!("SENDING MESSAGE!");
         channel
             .send_message(&ctx.http, |m| {
-                m.content(format!("{}", borrow_message));
+                m.content(format!("A reminder from {}: {}", user_name, borrow_message));
                 m.tts(true);
-
-                /* m.embed(|e| {
-                    e.title("embed boi");
-                    e.description("desc");
-
-                    e
-                }); */
 
                 m
             })
@@ -196,15 +190,8 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         println!("SENDING MESSAGE!");
         channel
             .send_message(&ctx.http, |m| {
-                m.content(format!("{}", borrow_message));
+                m.content(format!("A reminder from {}: {}", user_name, borrow_message));
                 m.tts(true);
-
-                /* m.embed(|e| {
-                    e.title("embed boi");
-                    e.description("desc");
-
-                    e
-                }); */
 
                 m
             })
@@ -221,15 +208,8 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         println!("SENDING MESSAGE!");
         channel
             .send_message(&ctx.http, |m| {
-                m.content(format!("{}", borrow_message));
+                m.content(format!("A reminder from {}: {}", user_name, borrow_message));
                 m.tts(true);
-
-                /* m.embed(|e| {
-                    e.title("embed boi");
-                    e.description("desc");
-
-                    e
-                }); */
 
                 m
             })
@@ -246,15 +226,8 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         println!("SENDING MESSAGE!");
         channel
             .send_message(&ctx.http, |m| {
-                m.content(format!("{}", borrow_message));
+                m.content(format!("A reminder from {}: {}", user_name, borrow_message));
                 m.tts(true);
-
-                /* m.embed(|e| {
-                    e.title("embed boi");
-                    e.description("desc");
-
-                    e
-                }); */
 
                 m
             })
@@ -292,15 +265,8 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         println!("SENDING MESSAGE!");
         channel
             .send_message(&ctx.http, |m| {
-                m.content(format!("{}", borrow_message));
+                m.content(format!("A reminder from {}: {}", user_name, borrow_message));
                 m.tts(true);
-
-                /* m.embed(|e| {
-                    e.title("embed boi");
-                    e.description("desc");
-
-                    e
-                }); */
 
                 m
             })
@@ -340,15 +306,8 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
             println!("SENDING MESSAGE!");
             channel
                 .send_message(&ctx.http, |m| {
-                    m.content(format!("{}", borrow_message));
+                    m.content(format!("A reminder from {}: {}", user_name, borrow_message));
                     m.tts(true);
-
-                    /* m.embed(|e| {
-                        e.title("embed boi");
-                        e.description("desc");
-
-                        e
-                    }); */
 
                     m
                 })
@@ -383,15 +342,8 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
             println!("SENDING MESSAGE!");
             channel
                 .send_message(&ctx.http, |m| {
-                    m.content(format!("{}", borrow_message));
+                    m.content(format!("A reminder from {}: {}", user_name, borrow_message));
                     m.tts(true);
-
-                    /* m.embed(|e| {
-                        e.title("embed boi");
-                        e.description("desc");
-
-                        e
-                    }); */
 
                     m
                 })
