@@ -162,7 +162,7 @@ fn get_latest_joined_pool(uid: &u64, connection_pool: &Pool) -> i32 {
     use schema::match_responses::dsl::*;
     let connection = connection_pool.get().unwrap();
     let results = match_responses
-        .filter(user_id.eq(*uid as i32))
+        .filter(user_id.eq(get_user_id(&uid, &connection_pool)))
         .order(id.desc())
         .load::<MatchResponses>(&connection)
         .expect("error getting latest joined pool");
@@ -301,8 +301,7 @@ fn join_pool(
         return;
     }
 
-    let pool_id = message_tokens[3].parse::<i32>();
-    if pool_id.is_err() || pool_id.unwrap() < 1 {
+    if message_tokens[3].parse::<i32>().is_err() || message_tokens[3].parse::<i32>().unwrap() < 1 {
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("Please use a proper pool id"))
         });
@@ -326,6 +325,19 @@ fn join_pool(
     );
 
     // TODO(barronwei): get all questions for pool id and display to user
+
+    use schema::pool_questions::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results = pool_questions
+        .filter(pool_id.eq(message_tokens[3].parse::<i32>().unwrap()))
+        .load::<PoolQuestions>(&connection)
+        .expect("error getting pool questions");
+
+    for result in results.into_iter() {
+        let _msg = message
+            .author
+            .direct_message(&context.http, |m| m.content(result.question));
+    }
 
     let _msg = message.author.direct_message(&context.http, |m| {
         m.content("Answer the above questions individually, and ping me with `done` when you are!")
