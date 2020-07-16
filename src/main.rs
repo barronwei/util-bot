@@ -251,7 +251,38 @@ fn get_pool_status(uid: &u64, connection_pool: &Pool) -> i32 {
     results[0].pool_state
 }
 
-fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {}
+fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
+    let connection = connection_pool.get().unwrap();
+    let results = schema::pool_questions::dsl::pool_questions
+        .filter(schema::pool_questions::dsl::pool_id.eq(pool.id))
+        .load::<PoolQuestions>(&connection)
+        .expect("error getting pool questions");
+
+    let question_count = results.len() as i64;
+    let response_headers = schema::match_responses::dsl::match_responses
+        .filter(schema::match_responses::dsl::match_id.eq(pool.id))
+        .load::<MatchResponses>(&connection)
+        .expect("error getting pool response headers");
+
+    let total_pool_size = response_headers.len() as f64;
+    let mut responses_by_user: Vec<Vec<PoolResponses>> = Vec::new();
+    for response_header in response_headers.into_iter() {
+        let responses = schema::pool_responses::dsl::pool_responses
+            .filter(schema::pool_responses::dsl::response_id.eq(response_header.id))
+            .limit(question_count)
+            .load::<PoolResponses>(&connection)
+            .expect("error getting pool response from header");
+        responses_by_user.push(responses);
+    }
+
+    // compute group sizes
+    // if not evenly divisble, split what would be the last full group plus the leftover members into two groups
+    let group_count_at_max_size =
+        ((total_pool_size - pool.group_size as f64) / pool.group_size as f64).floor();
+    let leftover_count = total_pool_size - (group_count_at_max_size * pool.group_size as f64);
+    let last_group_size = (leftover_count / pool.group_size as f64).floor();
+    let second_to_last_group_size = leftover_count - last_group_size;
+}
 
 fn start_pool(
     context: &Context,
@@ -387,7 +418,7 @@ fn join_pool(
     }
 
     let _msg = message.author.direct_message(&context.http, |m| {
-        m.content("Answer the above questions individually, and ping me with `done` when you are!")
+        m.content("Answer the above questions individually with `yes` or `no`, and ping me with `done` when you are!")
     });
 }
 
@@ -514,6 +545,13 @@ fn parse_pool_activity(
         }
 
         if status == 1 {
+            if message_tokens[0].to_lowercase() != "yes" && message_tokens[0].to_lowercase() != "no"
+            {
+                let _msg = message.author.direct_message(&context.http, |m| {
+                    m.content("Please say `yes`, `no`, or `done`!")
+                });
+                return;
+            }
             insert_response(&message.author.id.0, &connection_pool, &message.content);
         }
 
