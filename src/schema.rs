@@ -3,6 +3,7 @@ table! {
         id -> Int4,
         user_id -> Int4,
         status -> Bool,
+        group_size -> Int4,
     }
 }
 

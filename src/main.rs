@@ -40,6 +40,7 @@ struct User {
 struct NewMatchAdmin {
     user_id: i32,
     status: bool,
+    group_size: i32,
 }
 
 #[derive(Queryable)]
@@ -47,6 +48,7 @@ struct MatchAdmin {
     id: i32,
     user_id: i32,
     status: bool,
+    group_size: i32,
 }
 
 #[derive(Insertable)]
@@ -149,7 +151,7 @@ fn get_latest_started_pool(uid: &u64, connection_pool: &Pool) -> i32 {
     use schema::match_admin::dsl::*;
     let connection = connection_pool.get().unwrap();
     let results = match_admin
-        .filter(user_id.eq(*uid as i32))
+        .filter(user_id.eq(get_user_id(&uid, &connection_pool)))
         .order(id.desc())
         .load::<MatchAdmin>(&connection)
         .expect("error getting latest started pool");
@@ -189,12 +191,13 @@ fn insert_response(uid: &u64, connection_pool: &Pool, text: &String) {
         .unwrap();
 }
 
-fn insert_pool(uid: &u64, connection_pool: &Pool) {
+fn insert_pool(uid: &u64, connection_pool: &Pool, size: i32) {
     let connection = connection_pool.get().unwrap();
     diesel::insert_into(schema::match_admin::dsl::match_admin)
         .values(NewMatchAdmin {
             user_id: get_user_id(&uid, &connection_pool),
             status: true,
+            group_size: size,
         })
         .execute(&connection)
         .unwrap();
@@ -232,6 +235,7 @@ fn start_pool(
                 "Please use `!utilbot pool start N` for N number of people in a group!"
             ))
         });
+        return;
     }
 
     let group_size = message_tokens[3].parse::<i32>();
@@ -239,6 +243,7 @@ fn start_pool(
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("Please use a group size greater than 1!"))
         });
+        return;
     }
 
     let updated = diesel::update(user.filter(discord_id.eq(message.author.id.0 as i32)))
@@ -251,11 +256,15 @@ fn start_pool(
             .direct_message(&context.http, |m| m.content(format!("unknown issue")));
     }
 
-    insert_pool(&message.author.id.0, &connection_pool);
+    insert_pool(
+        &message.author.id.0,
+        &connection_pool,
+        message_tokens[3].parse::<i32>().unwrap(),
+    );
 
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("Started pool! Just keep sending me questions individually, and ping me with `done` when you are done!"));
+        .direct_message(&context.http, |m| m.content(format!("Started pool of size {}! Just keep sending me questions individually, and ping me with `done` when you are done!", message_tokens[3])));
 }
 
 fn join_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
@@ -309,9 +318,23 @@ fn parse_pool_activity(
                     .direct_message(&context.http, |m| m.content("unknown issue"));
             }
 
-            let _msg = message
-                .author
-                .direct_message(&context.http, |m| m.content("Finished!"));
+            if status == 2 {
+                let _msg = message.author.direct_message(&context.http, |m| {
+                    m.content(format!(
+                        "Your new pool id is {}!",
+                        get_latest_started_pool(&message.author.id.0, &connection_pool)
+                    ))
+                });
+            }
+
+            if status == 1 {
+                let _msg = message.author.direct_message(&context.http, |m| {
+                    m.content(format!(
+                        "Joined pool id {}!",
+                        get_latest_joined_pool(&message.author.id.0, &connection_pool)
+                    ))
+                });
+            }
 
             return;
         }
