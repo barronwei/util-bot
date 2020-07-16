@@ -38,6 +38,7 @@ struct User {
 #[derive(Insertable)]
 #[table_name = "match_admin"]
 struct NewMatchAdmin {
+    status: bool,
     questions: Vec<String>,
     user_id: i32,
 }
@@ -45,6 +46,7 @@ struct NewMatchAdmin {
 #[derive(Queryable)]
 struct MatchAdmin {
     id: i32,
+    status: bool,
     questions: Vec<String>,
     user_id: i32,
 }
@@ -102,16 +104,17 @@ fn insert_user(id: &u64, languages: Vec<String>, connection_pool: &Pool) {
         .values(NewUser {
             discord_id: *id as i32,
             languages: languages.iter().map(AsRef::as_ref).collect(),
-            group_state: 0 as i32,
+            // pool_state = 0, 1, 2 for doing nothing, generating pool, joining pool
+            pool_state: 0 as i32,
         })
         .execute(&connection_pool.get().unwrap())
         .unwrap();
 }
 
-fn start_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn start_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("starting group"));
+        .direct_message(&context.http, |m| m.content("starting pool"));
 }
 fn clear_user_languages(id: &u64, connection_pool: &Pool) {
     // User clears the languages
@@ -160,22 +163,28 @@ fn update_user_languages(user_id: &u64, new_languages: Vec<String>, connection_p
 }
 
 
-fn join_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn join_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("joining group"));
+        .direct_message(&context.http, |m| m.content("joining pool"));
 }
 
-fn check_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn check_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("checking group"));
+        .direct_message(&context.http, |m| m.content("checking pool"));
 }
 
-fn skrt_group(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn skrt_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("leaving group"));
+        .direct_message(&context.http, |m| m.content("leaving pool"));
+}
+
+fn match_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+    let _msg = message
+        .author
+        .direct_message(&context.http, |m| m.content("generating matches"));
 }
 
 impl EventHandler for Handler {
@@ -193,14 +202,14 @@ impl EventHandler for Handler {
             if message_tokens.len() < 2 {
                 return;
             }
-            if message_tokens[1] == "group" {
+            if message_tokens[1] == "pool" {
                 match message_tokens[2] {
-                    "start" => start_group(&context, &message, &message_tokens),
-                    "join" => join_group(&context, &message, &message_tokens),
-                    "check" => check_group(&context, &message, &message_tokens),
-                    "skrt" => skrt_group(&context, &message, &message_tokens),
-                    "clear" => clear_user_languages(&message_author_id, connection_pool),
-                    _ => println!("Bad group command"),
+                    "start" => start_pool(&context, &message, &message_tokens),
+                    "join" => join_pool(&context, &message, &message_tokens),
+                    "check" => check_pool(&context, &message, &message_tokens),
+                    "skrt" => skrt_pool(&context, &message, &message_tokens),
+                    "match" => match_pool(&context, &message, &message_tokens),
+                    _ => println!("Bad pool command"),
                 }
             } else if message_tokens[1] == "clear" {
                 if is_user_exist(&message_author_id, connection_pool) {
