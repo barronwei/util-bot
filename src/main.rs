@@ -181,7 +181,7 @@ fn get_latest_joined_pool(uid: &u64, connection_pool: &Pool) -> i32 {
         .order(id.desc())
         .load::<MatchResponses>(&connection)
         .expect("error getting latest joined pool");
-    results[0].id
+    results[0].match_id
 }
 
 fn get_pool(uid: &i32, connection_pool: &Pool) -> Result<MatchAdmin, ()> {
@@ -271,7 +271,7 @@ fn get_cost(user1: &CompleteResponses, user2: &CompleteResponses) -> u32 {
     for it in user1.pool_responses.iter().zip(user2.pool_responses.iter()) {
         let (x, y) = it;
         // assume yes (1) or no (0)
-        if x.answer != y.answer {
+        if x.answer.to_lowercase() != y.answer.to_lowercase() {
             cost += 1;
         }
     }
@@ -295,11 +295,24 @@ fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
     let mut responses_by_user: Vec<Vec<PoolResponses>> = Vec::new();
     let response_header_iter = response_headers.iter();
     for response_header in response_header_iter {
-        let responses = schema::pool_responses::dsl::pool_responses
+        let mut responses = schema::pool_responses::dsl::pool_responses
             .filter(schema::pool_responses::dsl::response_id.eq(response_header.id))
             .limit(question_count)
             .load::<PoolResponses>(&connection)
             .expect("error getting pool response from header");
+
+        // pad responses with no's if user doesn't follow directions
+        let user_does_not_follow_directions = question_count - responses.len() as i64;
+        if user_does_not_follow_directions != 0 {
+            for _ in 0..user_does_not_follow_directions {
+                responses.push(PoolResponses {
+                    id: 0, // doesn't matter
+                    response_id: response_headers[0].id,
+                    answer: String::from("no"),
+                })
+            }
+        }
+
         responses_by_user.push(responses);
     }
 
@@ -335,25 +348,30 @@ fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
     for (pos, e) in final_responses.into_iter().enumerate() {
         // set up leaders
         if (pos as f64) < total_group_count {
-            final_groups[pos].push(e);
+            final_groups.push(vec![e]);
             continue;
         }
 
         for (index, el) in final_groups.iter().enumerate() {
+            let leader = &el[0];
+            if costs.len() != (total_group_count as usize) {
+                costs.push((index as u32, get_cost(leader, &e)));
+                continue;
+            }
+
             // if at full capacity
             if (el.len() as i32) == pool.group_size {
-                costs[index] = (index as u32, std::u32::MAX);
+                std::mem::replace(&mut costs[index], (index as u32, std::u32::MAX));
             };
 
             // if at full capacity for the second to last group
             if (el.len() as f64) == second_to_last_group_size
                 && number_of_full_groups + 1 == (total_group_count as i32)
             {
-                costs[index] = (index as u32, std::u32::MAX);
+                std::mem::replace(&mut costs[index], (index as u32, std::u32::MAX));
             }
 
-            let leader = &el[0];
-            costs[index] = (index as u32, get_cost(leader, &e));
+            std::mem::replace(&mut costs[index], (index as u32, get_cost(leader, &e)));
         }
 
         let (assigned, _) = costs.iter().min_by_key(|x| x.1).unwrap();
@@ -590,7 +608,15 @@ fn match_pool(
         return;
     }
 
+    let _msg = message.author.direct_message(&context.http, |m| {
+        m.content(format!("Starting matching for pool {}", pool_id))
+    });
+
     generate_pool_matches(&match_admin, &connection_pool);
+
+    let _msg = message
+        .author
+        .direct_message(&context.http, |m| m.content("Done!"));
 }
 
 fn parse_pool_activity(
