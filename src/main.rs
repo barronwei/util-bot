@@ -184,6 +184,17 @@ fn get_latest_joined_pool(uid: &u64, connection_pool: &Pool) -> i32 {
     results[0].match_id
 }
 
+fn get_latest_response_header(uid: &u64, connection_pool: &Pool) -> i32 {
+    use schema::match_responses::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results = match_responses
+        .filter(user_id.eq(get_user_id(&uid, &connection_pool)))
+        .order(id.desc())
+        .load::<MatchResponses>(&connection)
+        .expect("error getting latest joined pool");
+    results[0].id
+}
+
 fn get_pool(uid: &i32, connection_pool: &Pool) -> Result<MatchAdmin, ()> {
     use schema::match_admin::dsl::*;
     let connection = connection_pool.get().unwrap();
@@ -206,6 +217,21 @@ fn deactivate_pool(uid: &i32, connection_pool: &Pool) -> bool {
         .get_result::<MatchAdmin>(&connection);
     if updated.is_err() {
         println!("Failed to deactivate pool {}", *uid);
+        return false;
+    }
+    true
+}
+
+fn user_already_in_pool(uid: &u64, poolid: &i32, connection_pool: &Pool) -> bool {
+    use schema::match_responses::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results = match_responses
+        .filter(user_id.eq(get_user_id(uid, &connection_pool)))
+        .filter(match_id.eq(poolid))
+        .order(id.desc())
+        .load::<MatchResponses>(&connection)
+        .expect("error getting latest joined pool");
+    if results.len() == 0 {
         return false;
     }
     true
@@ -273,7 +299,7 @@ fn insert_response(uid: &u64, connection_pool: &Pool, text: &String) {
     let connection = connection_pool.get().unwrap();
     diesel::insert_into(schema::pool_responses::dsl::pool_responses)
         .values(NewPoolResponses {
-            response_id: get_latest_joined_pool(&uid, &connection_pool),
+            response_id: get_latest_response_header(&uid, &connection_pool),
             answer: text.to_string(),
         })
         .execute(&connection)
@@ -548,6 +574,13 @@ fn join_pool(
         Ok(match_result) => match_ad = match_result,
     }
 
+    if user_already_in_pool(&message.author.id.0, &poolid, &connection_pool) {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("You've already joined pool {}", poolid))
+        });
+        return;
+    }
+
     if match_ad.refs == 0 {
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("pool_id {} is inactive", poolid))
@@ -567,7 +600,7 @@ fn join_pool(
 
     // increment ref count for match admin for sync
     let inc_ref = diesel::update(match_admin.filter(schema::match_admin::dsl::id.eq(match_ad.id)))
-        .set(refs.eq(match_ad.id + 1))
+        .set(refs.eq(match_ad.refs + 1))
         .get_result::<MatchAdmin>(&connection);
 
     if inc_ref.is_err() {
@@ -608,12 +641,6 @@ fn check_pool(
 ) {
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
-    if get_pool_status(&message.author.id.0, &connection_pool) == 0 {
-        let _msg = message.author.direct_message(&context.http, |m| {
-            m.content(format!("You have not begun creating or joining a pool"))
-        });
-        return;
-    }
     if message_tokens.len() != 4 && message_tokens.len() != 5 {
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("Please use `!utilbot pool check POOL_ID`"))
@@ -632,25 +659,35 @@ fn check_pool(
         }
         Ok(match_result) => match_admin = match_result,
     }
+
+    if !user_already_in_pool(&message.author.id.0, &match_admin.id, &connection_pool)
+        && match_admin.id != get_user_id(&message.author.id.0, &connection_pool)
+    {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("You are not in pool {}", chosen_pool))
+        });
+        return;
+    }
+
     if match_admin.refs > 0 {
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("Matching not complete in this pool!"))
         });
         return;
     }
-    let uid_admin = match_admin.id as u64;
-    let uid = message.author.id.0 as u64;
     use schema::match_groups::dsl::*;
     let results = match_groups
-        .filter(match_id.eq(get_user_id(&uid_admin, &connection_pool)))
+        .filter(match_id.eq(chosen_pool))
         .load::<MatchGroups>(&connection)
         .expect("Error getting group");
-    for result in results.iter() {
-        for member in result.members.iter() {
-            if *member == get_user_id(&uid, &connection_pool) {
-                let _msg = message.author.direct_message(&context.http, |m| {
-                    m.content(format!("{:#?}", result.members))
-                });
+    for result in &results {
+        for member in &result.members {
+            if *member == message.author.id.0 as i32 {
+                for mem in &result.members {
+                    let _msg = message
+                        .author
+                        .direct_message(&context.http, |m| m.content(mem));
+                }
                 return;
             }
         }
@@ -790,7 +827,7 @@ fn parse_pool_activity(
                     schema::match_admin::dsl::match_admin
                         .filter(schema::match_admin::dsl::id.eq(pool.id)),
                 )
-                .set(schema::match_admin::dsl::refs.eq(pool.id - 1))
+                .set(schema::match_admin::dsl::refs.eq(pool.refs - 1))
                 .get_result::<MatchAdmin>(&connection);
 
                 if inc_ref.is_err() {
@@ -836,17 +873,8 @@ impl EventHandler for Handler {
         let message_author_id = message.author.id.0;
 
         if message_tokens[0] == "!utilbot" || message.is_private() {
-            // Keep this first to guarantee that the user exists
-            // Test existance of message sender
-            if is_user_exist(&message_author_id, connection_pool) {
-                println!(
-                    "You're already in the database and your ID is {}",
-                    message_author_id
-                );
-            // TODO: Add query here to verify that user has been added
-            // Insert new user that sent the message
-            } else {
-                println!("Bad command")
+            if !is_user_exist(&message_author_id, connection_pool) {
+                insert_user(&message_author_id, Vec::new(), connection_pool);
             }
         }
 
