@@ -12,10 +12,10 @@ We have implement 3 main features in the time we had:
    - This command streamlines the team generation process, something that is difficult to accomplish with 100+ fellows :laughing:
 ```
 !utilbot pool start
-!utilbot pool start
-!utilbot pool start
-!utilbot pool start
-!utilbot pool start
+!utilbot pool join
+!utilbot pool skrt
+!utilbot pool match
+!utilbot pool check
 ```
  - Remind-a-bot
    - This command helps fellows set reminders for themselves or someone else. This could takes the form of a short text input within 
