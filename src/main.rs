@@ -499,7 +499,7 @@ fn check_pool(
         for member in &result.members {
             if *member == get_user_id(&uid, &connection_pool) {
                 let _msg = message.author.direct_message(&context.http, |m| {
-                    m.content(format!("{:#?}", *result.members))
+                    m.content(format!("{:#?}", result.members))
                 });
                 return;
             }
