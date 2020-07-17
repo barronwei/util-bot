@@ -2,7 +2,7 @@ table! {
     match_admin (id) {
         id -> Int4,
         user_id -> Int4,
-        status -> Bool,
+        refs -> Int4,
         group_size -> Int4,
     }
 }
