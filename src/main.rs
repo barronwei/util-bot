@@ -829,7 +829,11 @@ impl EventHandler for Handler {
 
         // Sample parsing of message
         let message_tokens: Vec<&str> = message.content.split(" ").collect();
-        let message_author_id = message.author.id.0;
+        let message_author_id: u64 = message.author.id.0;
+
+        if !is_user_exist(&message_author_id, connection_pool) {
+            insert_user(&message_author_id, Vec::new(), connection_pool);
+        }
 
         if message_tokens[0] == "!utilbot" || message.is_private() {
             // Keep this first to guarantee that the user exists
