@@ -2,7 +2,7 @@ table! {
     match_admin (id) {
         id -> Int4,
         user_id -> Int4,
-        status -> Bool,
+        refs -> Int4,
         group_size -> Int4,
     }
 }
@@ -43,6 +43,7 @@ table! {
     user (id) {
         id -> Int4,
         discord_id -> Int4,
+        discord_id_full -> Int8,
         languages -> Array<Text>,
         pool_state -> Int4,
     }

@@ -29,6 +29,7 @@ type Pool = diesel::r2d2::Pool<diesel::r2d2::ConnectionManager<diesel::PgConnect
 #[table_name = "user"]
 struct NewUser<'a> {
     discord_id: i32,
+    discord_id_full: i64,
     languages: Vec<&'a str>,
     pool_state: i32,
 }
@@ -37,6 +38,7 @@ struct NewUser<'a> {
 struct User {
     id: i32,
     discord_id: i32,
+    discord_id_full: i64,
     languages: Vec<String>,
     pool_state: i32,
 }
@@ -45,7 +47,7 @@ struct User {
 #[table_name = "match_admin"]
 struct NewMatchAdmin {
     user_id: i32,
-    status: bool,
+    refs: i32,
     group_size: i32,
 }
 
@@ -53,7 +55,7 @@ struct NewMatchAdmin {
 struct MatchAdmin {
     id: i32,
     user_id: i32,
-    status: bool,
+    refs: i32,
     group_size: i32,
 }
 
@@ -120,8 +122,92 @@ struct MatchGroups {
 
 struct PooledConnection(Pool);
 
+#[derive(PartialEq)]
+enum ReplyType {
+    Add,
+    Clear,
+    GetHelp,
+}
+
 impl TypeMapKey for PooledConnection {
     type Value = Pool;
+}
+
+fn get_proficient_users(connection_pool: &Pool, language: &String) -> Vec<i64> {
+    use schema::user::dsl::*;
+    let results = user
+        .filter(languages.contains(vec![language]))
+        .load::<User>(&connection_pool.get().unwrap())
+        .unwrap();
+
+    // Used for debugging lololololol
+    // for result in results {
+    //     println!("{} knows {}", result.discord_id_full, language);
+    // }
+    results
+        .iter()
+        .map(|result| result.discord_id_full)
+        .collect()
+}
+
+fn reply_for_add_view (
+    uid: &u64,
+    message: &Message,
+    context: &Context,
+    connection_pool: &Pool
+) {
+    let langs = get_user_languages(uid, connection_pool);
+    let tag = message.author.mention();
+    let mut message_return;
+    if langs.len() == 0 {
+        message_return = format!("Hey {}, you haven't added anything :cry: \n", tag);
+    } else {
+        message_return = format!("Hey {}, you've added\n", tag);
+    }
+
+    let channel_id = message.channel_id;
+    let connected = &langs.join("\n");
+    message_return.push_str(connected);
+    // Can also use channel_id.say or somehting like tath
+    channel_id.send_message(&context.http, |m| {
+        m.content(message_return);
+        m
+    }).unwrap();
+
+}
+
+fn ping_proficient_users (
+    uid: &u64,
+    recipient_ids: &Vec<i64>,
+    lang: &String,
+    question: &Vec<&str>,
+    message: &Message,
+    context: &Context
+) {
+    let guild_id = message.guild_id.unwrap();
+    if recipient_ids.len() == 0 {  
+        let return_string = format!("Unfortunaetly, no one has added {}", lang);
+        let channel_id = message.channel_id;
+        channel_id.send_message(&context.http, |m| {
+            m.content(return_string);
+        m
+        }).unwrap();
+    }
+    for recipient in recipient_ids.iter() {
+        let member = context.http.get_member(guild_id.0, *recipient as u64).unwrap();
+        let user_id = member.user_id();
+        let private_channel = user_id.create_dm_channel(&context.http).unwrap();
+        let connected_question = question.join(" ");
+        let user_line = format!("A fellow with userID {} ", message.author.tag());
+        let help_line = format!("needs help with {}\n", *lang);
+        let question_line = format!("Their question is: {}", connected_question);
+        let return_string = format!("{}{}{}",user_line,help_line,question_line);
+
+        private_channel.send_message(&context.http, |m| {
+            m.content(return_string);
+        m
+        }).unwrap();
+    }
 }
 
 fn is_user_exist(id: &u64, connection_pool: &Pool) -> bool {
@@ -140,6 +226,7 @@ fn insert_user(id: &u64, languages: Vec<String>, connection_pool: &Pool) {
     diesel::insert_into(schema::user::dsl::user)
         .values(NewUser {
             discord_id: *id as i32,
+            discord_id_full: *id as i64,
             languages: languages.iter().map(AsRef::as_ref).collect(),
             // pool_state = 0, 1, 2 for doing nothing, generating pool, joining pool
             pool_state: 0 as i32,
@@ -190,6 +277,17 @@ fn get_latest_joined_pool(uid: &u64, connection_pool: &Pool) -> i32 {
     results[0].match_id
 }
 
+fn get_latest_response_header(uid: &u64, connection_pool: &Pool) -> i32 {
+    use schema::match_responses::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results = match_responses
+        .filter(user_id.eq(get_user_id(&uid, &connection_pool)))
+        .order(id.desc())
+        .load::<MatchResponses>(&connection)
+        .expect("error getting latest joined pool");
+    results[0].id
+}
+
 fn get_pool(uid: &i32, connection_pool: &Pool) -> Result<MatchAdmin, ()> {
     use schema::match_admin::dsl::*;
     let connection = connection_pool.get().unwrap();
@@ -208,7 +306,7 @@ fn deactivate_pool(uid: &i32, connection_pool: &Pool) -> bool {
     use schema::match_admin::dsl::*;
     let connection = connection_pool.get().unwrap();
     let updated = diesel::update(match_admin.filter(id.eq(*uid)))
-        .set(status.eq(false))
+        .set(refs.eq(0))
         .get_result::<MatchAdmin>(&connection);
     if updated.is_err() {
         println!("Failed to deactivate pool {}", *uid);
@@ -216,6 +314,22 @@ fn deactivate_pool(uid: &i32, connection_pool: &Pool) -> bool {
     }
     true
 }
+
+fn user_already_in_pool(uid: &u64, poolid: &i32, connection_pool: &Pool) -> bool {
+    use schema::match_responses::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results = match_responses
+        .filter(user_id.eq(get_user_id(uid, &connection_pool)))
+        .filter(match_id.eq(poolid))
+        .order(id.desc())
+        .load::<MatchResponses>(&connection)
+        .expect("error getting latest joined pool");
+    if results.len() == 0 {
+        return false;
+    }
+    true
+}
+
 fn clear_user_languages(id: &u64, connection_pool: &Pool) {
     // User clears the languages
     let empty: Vec<String> = Vec::new();
@@ -246,8 +360,7 @@ fn update_user_languages(user_id: &u64, new_languages: Vec<String>, connection_p
         .load::<User>(&connection)
         .expect("error");
     // Assuming dicord_id unique
-    let mut user_languages = &results[0].languages;
-    let length = results[0].languages.len();
+    let user_languages = &results[0].languages;
 
     for language in new_languages {
         if !user_languages.contains(&language) {
@@ -278,7 +391,7 @@ fn insert_response(uid: &u64, connection_pool: &Pool, text: &String) {
     let connection = connection_pool.get().unwrap();
     diesel::insert_into(schema::pool_responses::dsl::pool_responses)
         .values(NewPoolResponses {
-            response_id: get_latest_joined_pool(&uid, &connection_pool),
+            response_id: get_latest_response_header(&uid, &connection_pool),
             answer: text.to_string(),
         })
         .execute(&connection)
@@ -290,7 +403,7 @@ fn insert_pool(uid: &u64, connection_pool: &Pool, size: i32) {
     diesel::insert_into(schema::match_admin::dsl::match_admin)
         .values(NewMatchAdmin {
             user_id: get_user_id(&uid, &connection_pool),
-            status: true,
+            refs: 1,
             group_size: size,
         })
         .execute(&connection)
@@ -515,6 +628,7 @@ fn join_pool(
     message_tokens: &Vec<&str>,
     connection_pool: &Pool,
 ) {
+    use schema::match_admin::dsl::*;
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
     if get_pool_status(&message.author.id.0, &connection_pool) != 0 {
@@ -541,7 +655,7 @@ fn join_pool(
 
     let poolid = message_tokens[3].parse::<i32>().unwrap();
     let res = get_pool(&poolid, &connection_pool);
-    let match_admin;
+    let match_ad;
     match res {
         Err(_) => {
             let _msg = message.author.direct_message(&context.http, |m| {
@@ -549,10 +663,17 @@ fn join_pool(
             });
             return;
         }
-        Ok(match_result) => match_admin = match_result,
+        Ok(match_result) => match_ad = match_result,
     }
 
-    if match_admin.status == false {
+    if user_already_in_pool(&message.author.id.0, &poolid, &connection_pool) {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("You've already joined pool {}", poolid))
+        });
+        return;
+    }
+
+    if match_ad.refs == 0 {
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("pool_id {} is inactive", poolid))
         });
@@ -564,6 +685,17 @@ fn join_pool(
         .get_result::<User>(&connection);
 
     if updated.is_err() {
+        let _msg = message
+            .author
+            .direct_message(&context.http, |m| m.content(format!("unknown issue")));
+    }
+
+    // increment ref count for match admin for sync
+    let inc_ref = diesel::update(match_admin.filter(schema::match_admin::dsl::id.eq(match_ad.id)))
+        .set(refs.eq(match_ad.refs + 1))
+        .get_result::<MatchAdmin>(&connection);
+
+    if inc_ref.is_err() {
         let _msg = message
             .author
             .direct_message(&context.http, |m| m.content(format!("unknown issue")));
@@ -593,10 +725,71 @@ fn join_pool(
     });
 }
 
-fn check_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
-    let _msg = message
-        .author
-        .direct_message(&context.http, |m| m.content("checking pool"));
+fn check_pool(
+    context: &Context,
+    message: &Message,
+    message_tokens: &Vec<&str>,
+    connection_pool: &Pool,
+) {
+    use schema::user::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    if message_tokens.len() != 4 && message_tokens.len() != 5 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Please use `!utilbot pool check POOL_ID`"))
+        });
+        return;
+    }
+    let chosen_pool = message_tokens[3].parse::<i32>().unwrap();
+    let res = get_pool(&chosen_pool, &connection_pool);
+    let match_admin;
+    match res {
+        Err(_) => {
+            let _msg = message.author.direct_message(&context.http, |m| {
+                m.content(format!("Pool ID {} does not exist!", chosen_pool))
+            });
+            return;
+        }
+        Ok(match_result) => match_admin = match_result,
+    }
+
+    if !user_already_in_pool(&message.author.id.0, &match_admin.id, &connection_pool)
+        && match_admin.id != get_user_id(&message.author.id.0, &connection_pool)
+    {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("You are not in pool {}", chosen_pool))
+        });
+        return;
+    }
+
+    if match_admin.refs > 0 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Matching not complete in this pool!"))
+        });
+        return;
+    }
+    use schema::match_groups::dsl::*;
+    let results = match_groups
+        .filter(match_id.eq(chosen_pool))
+        .load::<MatchGroups>(&connection)
+        .expect("Error getting group");
+    for result in &results {
+        for member in &result.members {
+            if *member == message.author.id.0 as i32 {
+                for mem in &result.members {
+                    let _msg = message
+                        .author
+                        .direct_message(&context.http, |m| m.content(mem));
+                }
+                return;
+            }
+        }
+    }
+    let _msg = message.author.direct_message(&context.http, |m| {
+        m.content(format!(
+            "Either you are not in this pool, or something broke"
+        ))
+    });
+    return;
 }
 
 fn skrt_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
@@ -646,9 +839,16 @@ fn match_pool(
         return;
     }
 
-    if !match_admin.status {
+    if match_admin.refs == 0 {
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("pool {} is not active", pool_id))
+        });
+        return;
+    }
+
+    if match_admin.refs != 1 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Someone is currently joining pool {}", pool_id))
         });
         return;
     }
@@ -708,12 +908,25 @@ fn parse_pool_activity(
             }
 
             if status == 1 {
+                let poolid = get_latest_joined_pool(&message.author.id.0, &connection_pool);
                 let _msg = message.author.direct_message(&context.http, |m| {
-                    m.content(format!(
-                        "Joined pool id {}!",
-                        get_latest_joined_pool(&message.author.id.0, &connection_pool)
-                    ))
+                    m.content(format!("Joined pool id {}!", poolid))
                 });
+
+                let pool = get_pool(&poolid, &connection_pool).unwrap();
+
+                let inc_ref = diesel::update(
+                    schema::match_admin::dsl::match_admin
+                        .filter(schema::match_admin::dsl::id.eq(pool.id)),
+                )
+                .set(schema::match_admin::dsl::refs.eq(pool.refs - 1))
+                .get_result::<MatchAdmin>(&connection);
+
+                if inc_ref.is_err() {
+                    let _msg = message
+                        .author
+                        .direct_message(&context.http, |m| m.content(format!("unknown issue")));
+                }
             }
 
             return;
@@ -749,20 +962,15 @@ impl EventHandler for Handler {
 
         // Sample parsing of message
         let message_tokens: Vec<&str> = message.content.split(" ").collect();
-        let message_author_id = message.author.id.0;
+        let message_author_id: u64 = message.author.id.0;
+
+        if !is_user_exist(&message_author_id, connection_pool) {
+            insert_user(&message_author_id, Vec::new(), connection_pool);
+        }
 
         if message_tokens[0] == "!utilbot" || message.is_private() {
-            // Keep this first to guarantee that the user exists
-            // Test existance of message sender
-            if is_user_exist(&message_author_id, connection_pool) {
-                println!(
-                    "You're already in the database and your ID is {}",
-                    message_author_id
-                );
-            // TODO: Add query here to verify that user has been added
-            // Insert new user that sent the message
-            } else {
-                println!("Bad command")
+            if !is_user_exist(&message_author_id, connection_pool) {
+                insert_user(&message_author_id, Vec::new(), connection_pool);
             }
         }
 
@@ -775,7 +983,7 @@ impl EventHandler for Handler {
                 match message_tokens[2] {
                     "start" => start_pool(&context, &message, &message_tokens, &connection_pool),
                     "join" => join_pool(&context, &message, &message_tokens, &connection_pool),
-                    "check" => check_pool(&context, &message, &message_tokens),
+                    "check" => check_pool(&context, &message, &message_tokens, &connection_pool),
                     "skrt" => skrt_pool(&context, &message, &message_tokens),
                     "match" => match_pool(&context, &message, &message_tokens, &connection_pool),
                     _ => println!("Bad pool command"),
@@ -783,19 +991,15 @@ impl EventHandler for Handler {
             } else if message_tokens[1] == "clear" {
                 if is_user_exist(&message_author_id, connection_pool) {
                     clear_user_languages(&message_author_id, connection_pool);
-                } else {
-                    println!("No record present to clear");
-                }
+                    
+                } else { println!("No record present to clear"); }
             } else if message_tokens[1] == "view" {
                 if is_user_exist(&message_author_id, connection_pool) {
                     let languages = get_user_languages(&message_author_id, connection_pool);
                     println!("Languages: ");
-                    for language in languages {
-                        println!("{}", language);
-                    }
-                } else {
-                    println!("No record present to view");
-                }
+                    for language in languages { println!("{}", language); }
+                } else { println!("No record present to view"); }
+                reply_for_add_view(&message_author_id, &message, &context, connection_pool);
             } else if message_tokens[1] == "add" {
                 if message_tokens.len() < 3 {
                     println!("Not enough arguments");
@@ -803,17 +1007,24 @@ impl EventHandler for Handler {
                 }
                 let cfg_strings: Vec<&str> = message_tokens[2..].to_vec();
                 let mut strings_vec: Vec<String> = Vec::new();
-                for s in &cfg_strings {
-                    strings_vec.push(s.to_string());
-                }
+                for s in &cfg_strings { strings_vec.push(s.to_string()); }
                 if is_user_exist(&message_author_id, connection_pool) {
                     update_user_languages(&message_author_id, strings_vec, connection_pool);
                 } else {
                     insert_user(&message_author_id, strings_vec, connection_pool);
                 }
-            } else {
-                println!("Bad command");
-            }
+                reply_for_add_view(&message_author_id, &message, &context, connection_pool);
+            } else if message_tokens[1] == "get-help" {
+                if message_tokens.len() < 4 {
+                    println!("Not enough arguments");
+                    return;
+                }
+                let language: String = message_tokens[2].to_string();
+                let question: Vec<&str> = message_tokens[3..].to_vec();
+                let result_ids: Vec<i64> = get_proficient_users(connection_pool, &language);
+                ping_proficient_users(&message_author_id, &result_ids, &language, &question, &message, &context);
+                // Ping users here
+            } else { println!("Bad command"); }
         }
 
         if message.is_private() {

@@ -2,6 +2,7 @@
 create table if not exists "user" (
     id serial primary key,
     discord_id integer not null,
+    discord_id_full bigserial not null,
     languages text[] not null,
     pool_state integer not null
 );
@@ -9,7 +10,7 @@ create table if not exists "user" (
 create table if not exists "match_admin" (
     id serial primary key,
     user_id integer not null references "user" (id) on delete cascade,
-    status bool not null,
+    refs integer not null,
     group_size integer not null
 );
 
