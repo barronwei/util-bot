@@ -495,11 +495,11 @@ fn check_pool(
         .filter(match_id.eq(get_user_id(&uid_admin, &connection_pool)))
         .load::<MatchGroups>(&connection)
         .expect("Error getting group");
-    for result in results {
-        for member in result.members {
-            if member == get_user_id(&uid, &connection_pool) {
+    for result in &results {
+        for member in &result.members {
+            if *member == get_user_id(&uid, &connection_pool) {
                 let _msg = message.author.direct_message(&context.http, |m| {
-                    m.content(format!("{:#?}", result.members))
+                    m.content(format!("{:#?}", *result.members))
                 });
                 return;
             }
