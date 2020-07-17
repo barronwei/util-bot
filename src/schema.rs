@@ -43,6 +43,7 @@ table! {
     user (id) {
         id -> Int4,
         discord_id -> Int4,
+        discord_id_full -> Int8,
         languages -> Array<Text>,
         pool_state -> Int4,
     }
