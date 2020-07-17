@@ -4,10 +4,10 @@ The description of **Utility Software** on [Wikipedia](https://en.wikipedia.org/
 
 >Utility software is software designed to help to analyze, configure, optimize or maintain a computer. It is used to support the computer infrastructure - in contrast to application software, which is aimed at directly performing tasks that benefit ordinary users.
 
-That's exactlty what util-bot is set out to accomplish. Except that it's a bot, and it is designed to analyze, configure and optimize fellows' workflows
+That's exactly what util-bot is set out to accomplish. Except that it's a bot, and it is designed to analyze, configure and optimize fellows' workflows
 
 ## What it does
-We have implement 3 main features in the time we had:
+We implemented 3 main features in the time we had:
  - Join a pool
    - This command streamlines the team generation process, something that is difficult to accomplish with 100+ fellows :laughing:
 ```
