@@ -683,7 +683,7 @@ impl EventHandler for Handler {
                 match message_tokens[2] {
                     "start" => start_pool(&context, &message, &message_tokens, &connection_pool),
                     "join" => join_pool(&context, &message, &message_tokens, &connection_pool),
-                    "check" => check_pool(&context, &message, &message_tokens),
+                    "check" => check_pool(&context, &message, &message_tokens, &connection_pool),
                     "skrt" => skrt_pool(&context, &message, &message_tokens),
                     "match" => match_pool(&context, &message, &message_tokens, &connection_pool),
                     _ => println!("Bad pool command"),
