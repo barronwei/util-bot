@@ -881,10 +881,10 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
         let should_notify;
 
         // println!("{:?}", &remind_date[3]);
-        use chrono::{Timelike, Utc};
+        use chrono::{Local, Timelike};
         use std::sync::atomic::{AtomicBool, Ordering};
 
-        let now = Utc::now(); // Current time
+        let now = Local::now(); // Current time
         let (is_pm, hour) = now.hour12();
 
         if &remind_date[3] == "mins" || &remind_date[3] == "min" {
