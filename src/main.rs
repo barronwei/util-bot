@@ -93,6 +93,11 @@ struct PoolResponses {
     answer: String,
 }
 
+struct CompleteResponses {
+    match_responses: MatchResponses,
+    pool_responses: Vec<PoolResponses>,
+}
+
 #[derive(Insertable)]
 #[table_name = "match_groups"]
 struct NewMatchGroups {
@@ -147,6 +152,16 @@ fn get_user_id(uid: &u64, connection_pool: &Pool) -> i32 {
     results[0].id
 }
 
+fn get_discord_id(uid: &i32, connection_pool: &Pool) -> i32 {
+    use schema::user::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let results = user
+        .filter(id.eq(*uid))
+        .load::<User>(&connection)
+        .expect("error getting user");
+    results[0].discord_id
+}
+
 fn get_latest_started_pool(uid: &u64, connection_pool: &Pool) -> i32 {
     use schema::match_admin::dsl::*;
     let connection = connection_pool.get().unwrap();
@@ -166,7 +181,34 @@ fn get_latest_joined_pool(uid: &u64, connection_pool: &Pool) -> i32 {
         .order(id.desc())
         .load::<MatchResponses>(&connection)
         .expect("error getting latest joined pool");
-    results[0].id
+    results[0].match_id
+}
+
+fn get_pool(uid: &i32, connection_pool: &Pool) -> Result<MatchAdmin, ()> {
+    use schema::match_admin::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let mut results = match_admin
+        .filter(id.eq(*uid as i32))
+        .load::<MatchAdmin>(&connection)
+        .expect("error getting pool");
+    if results.len() == 0 {
+        Err(())
+    } else {
+        Ok(results.remove(0))
+    }
+}
+
+fn deactivate_pool(uid: &i32, connection_pool: &Pool) -> bool {
+    use schema::match_admin::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    let updated = diesel::update(match_admin.filter(id.eq(*uid)))
+        .set(status.eq(false))
+        .get_result::<MatchAdmin>(&connection);
+    if updated.is_err() {
+        println!("Failed to deactivate pool {}", *uid);
+        return false;
+    }
+    true
 }
 fn clear_user_languages(id: &u64, connection_pool: &Pool) {
     // User clears the languages
@@ -270,6 +312,143 @@ fn get_pool_status(uid: &u64, connection_pool: &Pool) -> i32 {
     results[0].pool_state
 }
 
+fn get_cost(user1: &CompleteResponses, user2: &CompleteResponses) -> u32 {
+    let mut cost = 0;
+    for it in user1.pool_responses.iter().zip(user2.pool_responses.iter()) {
+        let (x, y) = it;
+        // assume yes (1) or no (0)
+        if x.answer.to_lowercase() != y.answer.to_lowercase() {
+            cost += 1;
+        }
+    }
+    cost
+}
+
+fn generate_pool_matches(pool: &MatchAdmin, connection_pool: &Pool) {
+    let connection = connection_pool.get().unwrap();
+    let results = schema::pool_questions::dsl::pool_questions
+        .filter(schema::pool_questions::dsl::pool_id.eq(pool.id))
+        .load::<PoolQuestions>(&connection)
+        .expect("error getting pool questions");
+
+    let question_count = results.len() as i64;
+    let response_headers = schema::match_responses::dsl::match_responses
+        .filter(schema::match_responses::dsl::match_id.eq(pool.id))
+        .load::<MatchResponses>(&connection)
+        .expect("error getting pool response headers");
+
+    let total_pool_size = response_headers.len() as f64;
+    let mut responses_by_user: Vec<Vec<PoolResponses>> = Vec::new();
+    let response_header_iter = response_headers.iter();
+    for response_header in response_header_iter {
+        let mut responses = schema::pool_responses::dsl::pool_responses
+            .filter(schema::pool_responses::dsl::response_id.eq(response_header.id))
+            .limit(question_count)
+            .load::<PoolResponses>(&connection)
+            .expect("error getting pool response from header");
+
+        // pad responses with no's if user doesn't follow directions
+        let user_does_not_follow_directions = question_count - responses.len() as i64;
+        if user_does_not_follow_directions != 0 {
+            for _ in 0..user_does_not_follow_directions {
+                responses.push(PoolResponses {
+                    id: 0, // doesn't matter
+                    response_id: response_headers[0].id,
+                    answer: String::from("no"),
+                })
+            }
+        }
+
+        responses_by_user.push(responses);
+    }
+
+    let mut final_responses: Vec<CompleteResponses> = Vec::new();
+    for it in response_headers
+        .into_iter()
+        .zip(responses_by_user.into_iter())
+    {
+        let (match_responses, pool_responses) = it;
+        final_responses.push(CompleteResponses {
+            match_responses,
+            pool_responses,
+        });
+    }
+
+    // compute group sizes
+    // if not evenly divisble, split what would be the last full group plus the leftover members into two groups
+    let group_count_at_max_size =
+        ((total_pool_size - pool.group_size as f64) / pool.group_size as f64).floor();
+    let leftover_count = total_pool_size - (group_count_at_max_size * pool.group_size as f64);
+    let last_group_size = (leftover_count / pool.group_size as f64).floor();
+    let second_to_last_group_size = leftover_count - last_group_size;
+    let total_group_count = group_count_at_max_size + 2 as f64;
+    let mut final_groups: Vec<Vec<CompleteResponses>> = Vec::new();
+
+    // algorithm:
+    // for each group: pick somebody as the "group leader"
+    // for each remaining user: find lowest cost in distance to "group leader" with incomplete group and place
+
+    let mut costs: Vec<(u32, u32)> = Vec::new();
+
+    let mut number_of_full_groups = 0;
+    for (pos, e) in final_responses.into_iter().enumerate() {
+        // set up leaders
+        if (pos as f64) < total_group_count {
+            final_groups.push(vec![e]);
+            continue;
+        }
+
+        for (index, el) in final_groups.iter().enumerate() {
+            let leader = &el[0];
+            if costs.len() != (total_group_count as usize) {
+                costs.push((index as u32, get_cost(leader, &e)));
+                continue;
+            }
+
+            // if at full capacity
+            if (el.len() as i32) == pool.group_size {
+                std::mem::replace(&mut costs[index], (index as u32, std::u32::MAX));
+            };
+
+            // if at full capacity for the second to last group
+            if (el.len() as f64) == second_to_last_group_size
+                && number_of_full_groups + 1 == (total_group_count as i32)
+            {
+                std::mem::replace(&mut costs[index], (index as u32, std::u32::MAX));
+            }
+
+            std::mem::replace(&mut costs[index], (index as u32, get_cost(leader, &e)));
+        }
+
+        let (assigned, _) = costs.iter().min_by_key(|x| x.1).unwrap();
+        final_groups[*assigned as usize].push(e);
+
+        if number_of_full_groups < (group_count_at_max_size as i32) {
+            if (final_groups[*assigned as usize].len() as i32) == pool.group_size {
+                number_of_full_groups += 1;
+            };
+        } else {
+            if (final_groups[*assigned as usize].len() as f64) == second_to_last_group_size {
+                number_of_full_groups += 1;
+            }
+        }
+    }
+
+    // add new matches to the database
+    for group in final_groups.iter() {
+        diesel::insert_into(schema::match_groups::dsl::match_groups)
+            .values(NewMatchGroups {
+                match_id: pool.id,
+                members: group
+                    .iter()
+                    .map(|x| get_discord_id(&x.match_responses.user_id, &connection_pool))
+                    .collect::<Vec<i32>>(),
+            })
+            .execute(&connection)
+            .unwrap();
+    }
+}
+
 fn start_pool(
     context: &Context,
     message: &Message,
@@ -354,6 +533,26 @@ fn join_pool(
         return;
     }
 
+    let poolid = message_tokens[3].parse::<i32>().unwrap();
+    let res = get_pool(&poolid, &connection_pool);
+    let match_admin;
+    match res {
+        Err(_) => {
+            let _msg = message.author.direct_message(&context.http, |m| {
+                m.content(format!("pool_id {} is not valid", poolid))
+            });
+            return;
+        }
+        Ok(match_result) => match_admin = match_result,
+    }
+
+    if match_admin.status == false {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("pool_id {} is inactive", poolid))
+        });
+        return;
+    }
+
     let updated = diesel::update(user.filter(discord_id.eq(message.author.id.0 as i32)))
         .set(pool_state.eq(1))
         .get_result::<User>(&connection);
@@ -370,8 +569,6 @@ fn join_pool(
         message_tokens[3].parse::<i32>().unwrap(),
     );
 
-    // TODO(barronwei): get all questions for pool id and display to user
-
     use schema::pool_questions::dsl::*;
     let connection = connection_pool.get().unwrap();
     let results = pool_questions
@@ -386,7 +583,7 @@ fn join_pool(
     }
 
     let _msg = message.author.direct_message(&context.http, |m| {
-        m.content("Answer the above questions individually, and ping me with `done` when you are!")
+        m.content("Answer the above questions individually with `yes` or `no`, and ping me with `done` when you are!")
     });
 }
 
@@ -402,10 +599,70 @@ fn skrt_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
         .direct_message(&context.http, |m| m.content("leaving pool"));
 }
 
-fn match_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn match_pool(
+    context: &Context,
+    message: &Message,
+    message_tokens: &Vec<&str>,
+    connection_pool: &Pool,
+) {
+    if message_tokens.len() < 4 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Please use `!utilbot pool match POOL_ID`!"))
+        });
+        return;
+    }
+
+    if message_tokens[3].parse::<i32>().is_err() || message_tokens[3].parse::<i32>().unwrap() < 1 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Please use a proper pool id"))
+        });
+        return;
+    }
+
+    let pool_id = message_tokens[3].parse::<i32>().unwrap();
+    let res = get_pool(&pool_id, &connection_pool);
+    let match_admin;
+    match res {
+        Err(_) => {
+            let _msg = message.author.direct_message(&context.http, |m| {
+                m.content(format!("pool_id {} is not valid", pool_id))
+            });
+            return;
+        }
+        Ok(match_result) => match_admin = match_result,
+    }
+
+    let discord_id = message.author.id.0;
+    if match_admin.user_id != get_user_id(&discord_id, &connection_pool) {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("You do not own pool {}", pool_id))
+        });
+        return;
+    }
+
+    if !match_admin.status {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("pool {} is not active", pool_id))
+        });
+        return;
+    }
+
+    if !deactivate_pool(&pool_id, &connection_pool) {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Failed to deactivate pool {}", pool_id))
+        });
+        return;
+    }
+
+    let _msg = message.author.direct_message(&context.http, |m| {
+        m.content(format!("Starting matching for pool {}", pool_id))
+    });
+
+    generate_pool_matches(&match_admin, &connection_pool);
+
     let _msg = message
         .author
-        .direct_message(&context.http, |m| m.content("generating matches"));
+        .direct_message(&context.http, |m| m.content("Done!"));
 }
 
 fn parse_pool_activity(
@@ -461,6 +718,13 @@ fn parse_pool_activity(
         }
 
         if status == 1 {
+            if message_tokens[0].to_lowercase() != "yes" && message_tokens[0].to_lowercase() != "no"
+            {
+                let _msg = message.author.direct_message(&context.http, |m| {
+                    m.content("Please say `yes`, `no`, or `done`!")
+                });
+                return;
+            }
             insert_response(&message.author.id.0, &connection_pool, &message.content);
         }
 
@@ -508,7 +772,7 @@ impl EventHandler for Handler {
                     "join" => join_pool(&context, &message, &message_tokens, &connection_pool),
                     "check" => check_pool(&context, &message, &message_tokens),
                     "skrt" => skrt_pool(&context, &message, &message_tokens),
-                    "match" => match_pool(&context, &message, &message_tokens),
+                    "match" => match_pool(&context, &message, &message_tokens, &connection_pool),
                     _ => println!("Bad pool command"),
                 }
             } else if message_tokens[1] == "clear" {
