@@ -216,16 +216,17 @@ fn clear_user_languages(id: &u64, connection_pool: &Pool) {
     diesel::update(schema::user::dsl::user)
         .set(schema::user::dsl::languages.eq(empty))
         .filter(schema::user::dsl::discord_id.eq(*id as i32))
-        .execute(&connection_pool.get().unwrap()).ok();
+        .execute(&connection_pool.get().unwrap())
+        .ok();
 }
 
 fn get_user_languages(user_id: &u64, connection_pool: &Pool) -> Vec<String> {
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
-    let results: std::vec::Vec<User> = user.
-    filter(discord_id.eq(*user_id as i32))
-    .load::<User>(&connection)
-    .expect("error");
+    let results: std::vec::Vec<User> = user
+        .filter(discord_id.eq(*user_id as i32))
+        .load::<User>(&connection)
+        .expect("error");
     let return_result = &results[0].languages;
     return_result.to_vec()
 }
@@ -234,11 +235,10 @@ fn update_user_languages(user_id: &u64, new_languages: Vec<String>, connection_p
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
 
-    let results: std::vec::Vec<User> = user.
-    filter(discord_id.eq(*user_id as i32))
-    .load::<User>(&connection)
-    .expect("error");
-    
+    let results: std::vec::Vec<User> = user
+        .filter(discord_id.eq(*user_id as i32))
+        .load::<User>(&connection)
+        .expect("error");
     // Assuming dicord_id unique
     let mut user_languages = &results[0].languages;
     let length = results[0].languages.len();
@@ -251,11 +251,11 @@ fn update_user_languages(user_id: &u64, new_languages: Vec<String>, connection_p
             diesel::update(schema::user::dsl::user)
                 .set(schema::user::dsl::languages.eq(old))
                 .filter(schema::user::dsl::discord_id.eq(*user_id as i32))
-                .execute(&connection_pool.get().unwrap()).ok();
+                .execute(&connection_pool.get().unwrap())
+                .ok();
         }
     }
 }
-
 
 fn insert_question(uid: &u64, connection_pool: &Pool, text: &String) {
     let connection = connection_pool.get().unwrap();
@@ -588,26 +588,22 @@ fn join_pool(
 }
 
 fn check_pool(
-    context: &Context, 
-    message: &Message, 
+    context: &Context,
+    message: &Message,
     message_tokens: &Vec<&str>,
-    connection_pool: &Pool
+    connection_pool: &Pool,
 ) {
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
     if get_pool_status(&message.author.id.0, &connection_pool) == 0 {
         let _msg = message.author.direct_message(&context.http, |m| {
-            m.content(format!(
-                "You have not begun creating or joining a pool"
-            ))
+            m.content(format!("You have not begun creating or joining a pool"))
         });
         return;
     }
     if message_tokens.len() != 4 && message_tokens.len() != 5 {
         let _msg = message.author.direct_message(&context.http, |m| {
-            m.content(format!(
-                "Please use `!utilbot pool check POOL_ID`"
-            ))
+            m.content(format!("Please use `!utilbot pool check POOL_ID`"))
         });
         return;
     }
@@ -621,7 +617,7 @@ fn check_pool(
             });
             return;
         }
-        Ok(match_result) => match_admin = match_result
+        Ok(match_result) => match_admin = match_result,
     }
     if match_admin.status == true {
         let _msg = message.author.direct_message(&context.http, |m| {
@@ -636,9 +632,9 @@ fn check_pool(
         .filter(match_id.eq(get_user_id(&uid_admin, &connection_pool)))
         .load::<MatchGroups>(&connection)
         .expect("Error getting group");
-    for result in results {
-        for member in result.members {
-            if member == get_user_id(&uid, &connection_pool) {
+    for result in results.iter() {
+        for member in result.members.iter() {
+            if *member == get_user_id(&uid, &connection_pool) {
                 let _msg = message.author.direct_message(&context.http, |m| {
                     m.content(format!("{:#?}", result.members))
                 });
@@ -647,16 +643,14 @@ fn check_pool(
         }
     }
     let _msg = message.author.direct_message(&context.http, |m| {
-        m.content(format!("Either you are not in this pool, or something broke"))
+        m.content(format!(
+            "Either you are not in this pool, or something broke"
+        ))
     });
     return;
 }
 
-fn skrt_pool(
-    context: &Context, 
-    message: &Message, 
-    message_tokens: &Vec<&str>
-) {
+fn skrt_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
     let _msg = message
         .author
         .direct_message(&context.http, |m| m.content("leaving pool"));
@@ -818,7 +812,6 @@ impl EventHandler for Handler {
                 );
             // TODO: Add query here to verify that user has been added
             // Insert new user that sent the message
-
             } else {
                 println!("Bad command")
             }
@@ -833,7 +826,7 @@ impl EventHandler for Handler {
                 match message_tokens[2] {
                     "start" => start_pool(&context, &message, &message_tokens, &connection_pool),
                     "join" => join_pool(&context, &message, &message_tokens, &connection_pool),
-                    "check" => check_pool(&context, &message, &message_tokens),
+                    "check" => check_pool(&context, &message, &message_tokens, &connection_pool),
                     "skrt" => skrt_pool(&context, &message, &message_tokens),
                     "match" => match_pool(&context, &message, &message_tokens, &connection_pool),
                     _ => println!("Bad pool command"),
@@ -867,7 +860,7 @@ impl EventHandler for Handler {
                 if is_user_exist(&message_author_id, connection_pool) {
                     update_user_languages(&message_author_id, strings_vec, connection_pool);
                 } else {
-                    insert_user(&message_author_id, strings_vec , connection_pool);
+                    insert_user(&message_author_id, strings_vec, connection_pool);
                 }
             } else {
                 println!("Bad command");
