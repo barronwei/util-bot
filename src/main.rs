@@ -39,7 +39,7 @@ struct User {
 #[table_name = "match_admin"]
 struct NewMatchAdmin {
     user_id: i32,
-    status: bool,
+    refs: i32,
     group_size: i32,
 }
 
@@ -47,7 +47,7 @@ struct NewMatchAdmin {
 struct MatchAdmin {
     id: i32,
     user_id: i32,
-    status: bool,
+    refs: i32,
     group_size: i32,
 }
 
@@ -202,7 +202,7 @@ fn deactivate_pool(uid: &i32, connection_pool: &Pool) -> bool {
     use schema::match_admin::dsl::*;
     let connection = connection_pool.get().unwrap();
     let updated = diesel::update(match_admin.filter(id.eq(*uid)))
-        .set(status.eq(false))
+        .set(refs.eq(0))
         .get_result::<MatchAdmin>(&connection);
     if updated.is_err() {
         println!("Failed to deactivate pool {}", *uid);
@@ -210,6 +210,7 @@ fn deactivate_pool(uid: &i32, connection_pool: &Pool) -> bool {
     }
     true
 }
+
 fn clear_user_languages(id: &u64, connection_pool: &Pool) {
     // User clears the languages
     let empty: Vec<String> = Vec::new();
@@ -284,7 +285,7 @@ fn insert_pool(uid: &u64, connection_pool: &Pool, size: i32) {
     diesel::insert_into(schema::match_admin::dsl::match_admin)
         .values(NewMatchAdmin {
             user_id: get_user_id(&uid, &connection_pool),
-            status: true,
+            refs: 1,
             group_size: size,
         })
         .execute(&connection)
@@ -509,6 +510,7 @@ fn join_pool(
     message_tokens: &Vec<&str>,
     connection_pool: &Pool,
 ) {
+    use schema::match_admin::dsl::*;
     use schema::user::dsl::*;
     let connection = connection_pool.get().unwrap();
     if get_pool_status(&message.author.id.0, &connection_pool) != 0 {
@@ -535,7 +537,7 @@ fn join_pool(
 
     let poolid = message_tokens[3].parse::<i32>().unwrap();
     let res = get_pool(&poolid, &connection_pool);
-    let match_admin;
+    let match_ad;
     match res {
         Err(_) => {
             let _msg = message.author.direct_message(&context.http, |m| {
@@ -543,10 +545,10 @@ fn join_pool(
             });
             return;
         }
-        Ok(match_result) => match_admin = match_result,
+        Ok(match_result) => match_ad = match_result,
     }
 
-    if match_admin.status == false {
+    if match_ad.refs == 0 {
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("pool_id {} is inactive", poolid))
         });
@@ -558,6 +560,17 @@ fn join_pool(
         .get_result::<User>(&connection);
 
     if updated.is_err() {
+        let _msg = message
+            .author
+            .direct_message(&context.http, |m| m.content(format!("unknown issue")));
+    }
+
+    // increment ref count for match admin for sync
+    let inc_ref = diesel::update(match_admin.filter(schema::match_admin::dsl::id.eq(match_ad.id)))
+        .set(refs.eq(match_ad.id + 1))
+        .get_result::<MatchAdmin>(&connection);
+
+    if inc_ref.is_err() {
         let _msg = message
             .author
             .direct_message(&context.http, |m| m.content(format!("unknown issue")));
@@ -619,7 +632,7 @@ fn check_pool(
         }
         Ok(match_result) => match_admin = match_result,
     }
-    if match_admin.status == true {
+    if match_admin.refs > 0 {
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("Matching not complete in this pool!"))
         });
@@ -697,9 +710,16 @@ fn match_pool(
         return;
     }
 
-    if !match_admin.status {
+    if match_admin.refs == 0 {
         let _msg = message.author.direct_message(&context.http, |m| {
             m.content(format!("pool {} is not active", pool_id))
+        });
+        return;
+    }
+
+    if match_admin.refs != 1 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Someone is currently joining pool {}", pool_id))
         });
         return;
     }
@@ -759,12 +779,25 @@ fn parse_pool_activity(
             }
 
             if status == 1 {
+                let poolid = get_latest_joined_pool(&message.author.id.0, &connection_pool);
                 let _msg = message.author.direct_message(&context.http, |m| {
-                    m.content(format!(
-                        "Joined pool id {}!",
-                        get_latest_joined_pool(&message.author.id.0, &connection_pool)
-                    ))
+                    m.content(format!("Joined pool id {}!", poolid))
                 });
+
+                let pool = get_pool(&poolid, &connection_pool).unwrap();
+
+                let inc_ref = diesel::update(
+                    schema::match_admin::dsl::match_admin
+                        .filter(schema::match_admin::dsl::id.eq(pool.id)),
+                )
+                .set(schema::match_admin::dsl::refs.eq(pool.id - 1))
+                .get_result::<MatchAdmin>(&connection);
+
+                if inc_ref.is_err() {
+                    let _msg = message
+                        .author
+                        .direct_message(&context.http, |m| m.content(format!("unknown issue")));
+                }
             }
 
             return;
