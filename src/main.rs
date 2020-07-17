@@ -1,19 +1,25 @@
 #[macro_use]
 extern crate diesel;
 extern crate dotenv;
+extern crate eventual;
 extern crate serenity;
 
 use diesel::prelude::*;
 use dotenv::dotenv;
 
 use std::env;
+use std::thread;
+use std::time::Duration;
 
+use serenity::framework::standard::{macros::command, CommandResult};
 use serenity::model::channel::{Message, Reaction};
 use serenity::model::gateway::Ready;
 use serenity::prelude::*;
 
 mod schema;
 use schema::*;
+
+use regex::Regex;
 
 struct Handler;
 
@@ -1029,6 +1035,276 @@ impl EventHandler for Handler {
     fn ready(&self, context: Context, bot_status: Ready) {
         println!("{} is ready", bot_status.user.name);
     }
+}
+
+#[command]
+fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
+    // Regex matchers
+    let message = Regex::new(r#""(.*?)""#).unwrap();
+    let person = Regex::new(r"@([A-Za-z0-9\D\S])[^\s]+").unwrap();
+    let date = Regex::new(r"([0-9]+)\s?:?([0-9]+)?\s?(mins?|hrs?|days?|weeks?|am|pm)+").unwrap(); // ([0-9]+)?\s(min?s|hr?s|day?s|week?s)+
+    let user_handle = Regex::new(r"[0-9]+").unwrap();
+
+    let incoming_message = msg.content.replace("~remind", "");
+
+    // Check if there are matches
+    let bool_msg = Regex::new(r#""(.*?)""#)
+        .unwrap()
+        .is_match(&incoming_message);
+
+    let bool_person = Regex::new(r"@([A-Za-z0-9\D\S])[^\s]+")
+        .unwrap()
+        .is_match(&incoming_message);
+    let bool_date = Regex::new(r"([0-9]+)\s?:?([0-9]+)?\s?(mins?|hrs?|days?|weeks?|am|pm)+")
+        .unwrap()
+        .is_match(&incoming_message);
+
+    // Store matches
+    let remind_message;
+    let remind_person;
+    let remind_date;
+    let user_u64;
+
+    if !bool_msg || !bool_date || !bool_person {
+        println!("THERE ISN'T A MATCH!");
+        msg.reply(ctx, r#"The syntax should look something like this: `~remind @handle "TEXT_HERE" at [TIME_HERE]` "#)?;
+    } else {
+        // Retrieve the matches
+        remind_message = message.captures(&incoming_message).unwrap();
+        remind_person = person.captures(&incoming_message).unwrap();
+        remind_date = date.captures(&incoming_message).unwrap();
+        user_u64 = user_handle.captures(&remind_person[0]).unwrap();
+
+        let borrow_time = remind_date[1].parse::<u64>().unwrap();
+        let borrow_message: String = remind_message[1].to_owned();
+
+        // Get the user we need to ping
+        // ex. `~remind @username`, we want to dm the @username
+        let num_user_u64 = user_u64[0].parse::<u64>().unwrap();
+        let guild_id = msg.guild_id.unwrap();
+        let member = ctx.http.get_member(guild_id.0, num_user_u64).unwrap();
+        let user_idd = member.user_id();
+        let user_name = member.display_name();
+        let channel = user_idd.create_dm_channel(&ctx.http).unwrap();
+
+        // Threads to run the internal clock
+        let child;
+        let should_notify;
+
+        // println!("{:?}", &remind_date[3]);
+        use chrono::{Local, Timelike};
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let now = Local::now(); // Current time
+        let (is_pm, hour) = now.hour12();
+
+        if &remind_date[3] == "mins" || &remind_date[3] == "min" {
+            should_notify = AtomicBool::new(false);
+            let mut should_notify_clone = AtomicBool::new(should_notify.load(Ordering::Relaxed));
+
+            // Sleep for the time entered by the user
+            child = thread::spawn(move || {
+                thread::sleep(Duration::from_secs(60 * borrow_time));
+                *should_notify_clone.get_mut() = true;
+            });
+
+            child.join().unwrap();
+
+            println!("SENDING MESSAGE!");
+            channel
+                .send_message(&ctx.http, |m| {
+                    m.content(format!("A reminder from {}: {}", user_name, borrow_message));
+                    m.tts(true);
+
+                    m
+                })
+                .unwrap();
+        } else if &remind_date[3] == "hrs" || &remind_date[3] == "hr" {
+            should_notify = AtomicBool::new(false);
+            let mut should_notify_clone = AtomicBool::new(should_notify.load(Ordering::Relaxed));
+            child = thread::spawn(move || {
+                thread::sleep(Duration::from_secs(3600 * borrow_time));
+                *should_notify_clone.get_mut() = true;
+            });
+
+            child.join().unwrap();
+
+            println!("SENDING MESSAGE!");
+            channel
+                .send_message(&ctx.http, |m| {
+                    m.content(format!("A reminder from {}: {}", user_name, borrow_message));
+                    m.tts(true);
+
+                    m
+                })
+                .unwrap();
+        } else if &remind_date[3] == "days" || &remind_date[3] == "day" {
+            should_notify = AtomicBool::new(false);
+            let mut should_notify_clone = AtomicBool::new(should_notify.load(Ordering::Relaxed));
+            child = thread::spawn(move || {
+                thread::sleep(Duration::from_secs(86400 * borrow_time));
+                *should_notify_clone.get_mut() = true;
+            });
+
+            child.join().unwrap();
+
+            println!("SENDING MESSAGE!");
+            channel
+                .send_message(&ctx.http, |m| {
+                    m.content(format!("A reminder from {}: {}", user_name, borrow_message));
+                    m.tts(true);
+
+                    m
+                })
+                .unwrap();
+        } else if &remind_date[3] == "weeks" || &remind_date[3] == "week" {
+            should_notify = AtomicBool::new(false);
+            let mut should_notify_clone = AtomicBool::new(should_notify.load(Ordering::Relaxed));
+            child = thread::spawn(move || {
+                thread::sleep(Duration::from_secs(604800 * borrow_time));
+                *should_notify_clone.get_mut() = true;
+            });
+
+            child.join().unwrap();
+
+            println!("SENDING MESSAGE!");
+            channel
+                .send_message(&ctx.http, |m| {
+                    m.content(format!("A reminder from {}: {}", user_name, borrow_message));
+                    m.tts(true);
+
+                    m
+                })
+                .unwrap();
+        } else if &remind_date[3] == "pm" {
+            // Get the input (i_hr) and current hr (hr)
+            let i_hr = remind_date[1].to_string().parse::<u64>().unwrap();
+            let hr = hour.to_string().parse::<u64>().unwrap();
+
+            // Get the input (i_min) and current min (m)
+            let i_min = remind_date[2].to_string().parse::<u64>().unwrap();
+            let m = now.minute().to_string().parse::<u64>().unwrap();
+
+            let mut diff_hr: u64 = 0;
+
+            // Make sure time in the future
+            if i_hr > hr {
+                diff_hr = i_hr - hr;
+            }
+
+            let diff_min = i_min - m;
+
+            let t_secs;
+            if diff_hr != 0 {
+                t_secs = (diff_hr * 3600) + (diff_min * 60);
+            } else {
+                t_secs = diff_min * 60;
+            }
+
+            let sshould_notify = AtomicBool::new(false);
+            let mut should_notify_clone = AtomicBool::new(sshould_notify.load(Ordering::Relaxed));
+            let cchild = thread::spawn(move || {
+                thread::sleep(Duration::from_secs(t_secs));
+                *should_notify_clone.get_mut() = true;
+            });
+
+            cchild.join().unwrap();
+
+            println!("SENDING MESSAGE!");
+            channel
+                .send_message(&ctx.http, |m| {
+                    m.content(format!("A reminder from {}: {}", user_name, borrow_message));
+                    m.tts(true);
+
+                    m
+                })
+                .unwrap();
+        } else if &remind_date[3] == "am" {
+            if !is_pm {
+                // it's am
+                // would calculate normally as if it's the "pm" case
+                let i_hr = remind_date[1].to_string().parse::<u64>().unwrap();
+                let hr = hour.to_string().parse::<u64>().unwrap();
+
+                let i_min = remind_date[2].to_string().parse::<u64>().unwrap();
+                let m = now.minute().to_string().parse::<u64>().unwrap();
+                let mut diff_hr: u64 = 0;
+
+                if i_min > hr {
+                    diff_hr = i_hr - hr;
+                }
+
+                let diff_min = i_min - m;
+
+                let t_secs;
+                if diff_hr != 0 {
+                    t_secs = (diff_hr * 3600) + (diff_min * 60);
+                } else {
+                    t_secs = diff_min * 60;
+                }
+
+                let sshould_notify = AtomicBool::new(false);
+                let mut should_notify_clone =
+                    AtomicBool::new(sshould_notify.load(Ordering::Relaxed));
+                let cchild = thread::spawn(move || {
+                    thread::sleep(Duration::from_secs(t_secs));
+                    *should_notify_clone.get_mut() = true;
+                });
+
+                cchild.join().unwrap();
+
+                println!("SENDING MESSAGE!");
+                channel
+                    .send_message(&ctx.http, |m| {
+                        m.content(format!("A reminder from {}: {}", user_name, borrow_message));
+                        m.tts(true);
+
+                        m
+                    })
+                    .unwrap();
+            } else {
+                // it's pm
+                // ex. 4:30pm remind at 2:15am
+                // convert to 16:30 and 2:15
+                let target = 12 - hour.to_string().parse::<u64>().unwrap()
+                    + remind_date[1].to_string().parse::<u64>().unwrap();
+                let min_sub_target = remind_date[2].to_string().parse::<u64>().unwrap() / 60;
+                let net_target = target - min_sub_target;
+                let net_target_secs = 60 * net_target;
+
+                let i_date_secs;
+                if remind_date[1].to_string().parse::<u64>().unwrap() != 12 {
+                    i_date_secs = (remind_date[1].to_string().parse::<u64>().unwrap() * 3600)
+                        + (remind_date[2].to_string().parse::<u64>().unwrap() * 60);
+                } else {
+                    i_date_secs = remind_date[2].to_string().parse::<u64>().unwrap() * 60;
+                }
+
+                let diff = net_target_secs - i_date_secs;
+                let sshould_notify = AtomicBool::new(false);
+                let mut should_notify_clone =
+                    AtomicBool::new(sshould_notify.load(Ordering::Relaxed));
+                let cchild = thread::spawn(move || {
+                    thread::sleep(Duration::from_secs(diff));
+                    *should_notify_clone.get_mut() = true;
+                });
+
+                cchild.join().unwrap();
+
+                println!("SENDING MESSAGE!");
+                channel
+                    .send_message(&ctx.http, |m| {
+                        m.content(format!("A reminder from {}: {}", user_name, borrow_message));
+                        m.tts(true);
+
+                        m
+                    })
+                    .unwrap();
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn main() {
