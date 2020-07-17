@@ -446,13 +446,76 @@ fn join_pool(
     });
 }
 
-fn check_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
-    let _msg = message
-        .author
-        .direct_message(&context.http, |m| m.content("checking pool"));
+fn check_pool(
+    context: &Context, 
+    message: &Message, 
+    message_tokens: &Vec<&str>,
+    connection_pool: &Pool
+) {
+    use schema::user::dsl::*;
+    let connection = connection_pool.get().unwrap();
+    if get_pool_status(&message.author.id.0, &connection_pool) == 0 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!(
+                "You have not begun creating or joining a pool"
+            ))
+        });
+        return;
+    }
+    if message_tokens.len() != 4 && message_tokens.len() != 5 {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!(
+                "Please use `!utilbot pool check POOL_ID`"
+            ))
+        });
+        return;
+    }
+    let chosen_pool = message_tokens[3].parse::<i32>().unwrap();
+    let res = get_pool(&chosen_pool, &connection_pool);
+    let match_admin;
+    match res {
+        Err(_) => {
+            let _msg = message.author.direct_message(&context.http, |m| {
+                m.content(format!("Pool ID {} does not exist!", chosen_pool))
+            });
+            return;
+        }
+        Ok(match_result) => match_admin = match_result
+    }
+    if match_admin.status == true {
+        let _msg = message.author.direct_message(&context.http, |m| {
+            m.content(format!("Matching not complete in this pool!"))
+        });
+        return;
+    }
+    let uid_admin = match_admin.id as u64;
+    let uid = message.author.id.0 as u64;
+    use schema::match_groups::dsl::*;
+    let results = match_groups
+        .filter(match_id.eq(get_user_id(&uid_admin, &connection_pool)))
+        .load::<MatchGroups>(&connection)
+        .expect("Error getting group");
+    for result in results {
+        for member in result.members {
+            if member == get_user_id(&uid, &connection_pool) {
+                let _msg = message.author.direct_message(&context.http, |m| {
+                    m.content(format!("{:#?}", result.members))
+                });
+                return;
+            }
+        }
+    }
+    let _msg = message.author.direct_message(&context.http, |m| {
+        m.content(format!("Either you are not in this pool, or something broke"))
+    });
+    return;
 }
 
-fn skrt_pool(context: &Context, message: &Message, message_tokens: &Vec<&str>) {
+fn skrt_pool(
+    context: &Context, 
+    message: &Message, 
+    message_tokens: &Vec<&str>
+) {
     let _msg = message
         .author
         .direct_message(&context.http, |m| m.content("leaving pool"));
