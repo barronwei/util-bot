@@ -1024,6 +1024,8 @@ impl EventHandler for Handler {
                 let result_ids: Vec<i64> = get_proficient_users(connection_pool, &language);
                 ping_proficient_users(&message_author_id, &result_ids, &language, &question, &message, &context);
                 // Ping users here
+            } else if message_tokens[1] == "remind" {
+                remind(&context, &message).ok();
             } else { println!("Bad command"); }
         }
 
@@ -1037,8 +1039,7 @@ impl EventHandler for Handler {
     }
 }
 
-#[command]
-fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
+fn remind(ctx: &Context, msg: &Message) -> CommandResult {
     // Regex matchers
     let message = Regex::new(r#""(.*?)""#).unwrap();
     let person = Regex::new(r"@([A-Za-z0-9\D\S])[^\s]+").unwrap();
@@ -1067,7 +1068,7 @@ fn remind(ctx: &mut Context, msg: &Message) -> CommandResult {
 
     if !bool_msg || !bool_date || !bool_person {
         println!("THERE ISN'T A MATCH!");
-        msg.reply(ctx, r#"The syntax should look something like this: `~remind @handle "TEXT_HERE" at [TIME_HERE]` "#)?;
+        msg.reply(ctx, r#"The syntax should look something like this: `!utilbot remind @handle "TEXT_HERE" at [TIME_HERE]` "#)?;
     } else {
         // Retrieve the matches
         remind_message = message.captures(&incoming_message).unwrap();
